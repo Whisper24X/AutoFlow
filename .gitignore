@@ -1,0 +1,12 @@
+demo-app/node_modules
+demo-app/test-results
+demo-app/playwright-report
+
+demo-app-*/node_modules
+demo-app-*/test-results
+demo-app-*/playwright-report
+
+# 本地安装的 Agent skills（可用 skills-lock.json + npx skills 恢复）
+.agents/
+.claude/
+.commandcode/

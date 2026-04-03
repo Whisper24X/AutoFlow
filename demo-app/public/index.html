@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Skills 闭环 Demo - 订单折扣</title>
+    <style>
+      :root {
+        color-scheme: light;
+      }
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #f5f7fb;
+        color: #0f172a;
+      }
+      .container {
+        max-width: 720px;
+        margin: 40px auto;
+        background: #fff;
+        border-radius: 12px;
+        padding: 24px;
+        box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
+      }
+      h1 {
+        margin-top: 0;
+      }
+      .row {
+        display: grid;
+        grid-template-columns: 160px 1fr;
+        gap: 10px;
+        align-items: center;
+        margin: 12px 0;
+      }
+      input {
+        padding: 10px;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+      }
+      button {
+        margin-top: 12px;
+        padding: 10px 14px;
+        border: 0;
+        border-radius: 8px;
+        background: #2563eb;
+        color: white;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .result {
+        margin-top: 18px;
+        padding: 12px;
+        background: #e2e8f0;
+        border-radius: 8px;
+      }
+      .hint {
+        color: #475569;
+        font-size: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="container">
+      <h1>订单价格计算器</h1>
+      <p class="hint">需求：优惠码 <code>SAVE10</code> 应打 9 折。</p>
+
+      <div class="row">
+        <label for="price">单价</label>
+        <input id="price" type="number" value="100" min="0" step="1" />
+      </div>
+
+      <div class="row">
+        <label for="quantity">数量</label>
+        <input id="quantity" type="number" value="2" min="1" step="1" />
+      </div>
+
+      <div class="row">
+        <label for="coupon">优惠码</label>
+        <input id="coupon" type="text" value="SAVE10" />
+      </div>
+
+      <button id="calc-btn" type="button">计算总价</button>
+
+      <section class="result" aria-live="polite">
+        应付总价：<strong id="total">--</strong>
+      </section>
+    </main>
+
+    <script>
+      function calculateTotal(price, quantity, coupon) {
+        const subtotal = price * quantity;
+
+        // 修复后：优惠码 SAVE10 正确打 9 折。
+        if (coupon === "SAVE10") {
+          return subtotal * 0.9;
+        }
+
+        return subtotal;
+      }
+
+      function formatCurrency(value) {
+        return `¥${value.toFixed(2)}`;
+      }
+
+      const priceEl = document.getElementById("price");
+      const quantityEl = document.getElementById("quantity");
+      const couponEl = document.getElementById("coupon");
+      const totalEl = document.getElementById("total");
+      const calcBtn = document.getElementById("calc-btn");
+
+      calcBtn.addEventListener("click", () => {
+        const price = Number(priceEl.value);
+        const quantity = Number(quantityEl.value);
+        const coupon = couponEl.value.trim().toUpperCase();
+        const total = calculateTotal(price, quantity, coupon);
+        totalEl.textContent = formatCurrency(total);
+      });
+    </script>
+  </body>
+</html>

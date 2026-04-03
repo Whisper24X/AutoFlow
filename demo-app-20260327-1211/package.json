@@ -1,0 +1,18 @@
+{
+  "name": "demo-app-20260327-1211",
+  "version": "1.0.0",
+  "private": true,
+  "description": "简易超级玛丽风格 Canvas 小游戏",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "playwright test",
+    "test:headed": "playwright test --headed"
+  },
+  "dependencies": {
+    "express": "^5.2.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.2"
+  },
+  "type": "commonjs"
+}
