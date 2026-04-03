@@ -19,8 +19,30 @@
 - 自动化：`subagent-driven-development` + `executing-plans`
 - 改善代码：`systematic-debugging`
 - 辅助：`writing-plans` + `verification-before-completion`
+- **测试修复闭环（本项目自定义）：`playwright-fix-loop`**
 
-选择依据：优先 skills.sh 中安装量高且社区验证较充分的技能组合，满足你的“开发 + 测试 + 自动化 + 代码改进”目标。
+选择依据：优先 skills.sh 中安装量高且社区验证较充分的技能组合，满足你的"开发 + 测试 + 自动化 + 代码改进"目标。
+
+## playwright-fix-loop 技能使用方式
+
+`playwright-fix-loop` 是本项目内置的自定义技能，位于 `.agents/skills/playwright-fix-loop/SKILL.md`。
+
+**作用：** Agent 自主执行"跑测试 → 读错误输出 → 定位 bug → 修复代码 → 再跑"闭环，直到 `npm test` 全部通过，无需人工介入。
+
+**触发方式：** 在 Cursor Agent 模式下，在输入框选择该技能后发送：
+
+```
+/playwright-fix-loop
+```
+
+**执行逻辑：**
+1. 运行 `npm test`，捕获 Playwright 输出
+2. 解析 `Locator` / `Expected` / `Received`，定位出错的页面元素
+3. 反查源码中对该元素赋值的业务逻辑，找出计算错误
+4. `StrReplace` 精确修复出错行
+5. 再次运行测试；若仍有失败则继续，否则报告完成
+
+**安全保护：** 同一测试失败修复超过 3 次仍未通过，停止并向用户说明，不再盲目尝试。
 
 ## 快速开始
 
@@ -47,12 +69,12 @@ npx playwright install chromium
 npm test
 ```
 
-当前代码已处于“修复后”状态，测试应通过。
+当前代码已处于"修复后"状态，测试应通过。
 
 ### 3) 在 Cursor 中演示闭环
 按 `demo-prompts.md` 的顺序给 Cursor 发送指令，即可复现完整流程。
 
-## 如果要重新演示“先失败再修复”
+## 如果要重新演示"先失败再修复"
 1. 在 `demo-app/public/index.html` 把 `subtotal * 0.9` 暂时改回 `subtotal * 0.95`。
 2. 运行 `npm test` 观察失败。
 3. 再改回 `0.9`，重新测试通过。
