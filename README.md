@@ -1,27 +1,21 @@
-# Skills 闭环 Demo（Cursor）
+# AutoFlow 工程化仓库
 
-这个项目演示如何在 Cursor 中，基于 skills.sh 的高质量 skills，完成一条完整工程闭环：
+当前仓库按“核心平台 + 归档示例 + skills 元数据”组织，核心入口是 `visualization`。
 
-需求 -> 开发 -> 自动化测试 -> 发现 bug -> 修复 -> 回归通过
+## 核心保留结构
 
-## 项目结构
-- `demo-requirement.md`：示例需求
-- `demo-prompts.md`：Cursor 对话脚本
-- `skills-lock.md`：skills 选型与安装说明
-- `runbook.md`：一次完整闭环执行记录
-- `skills-lock.json`：skills CLI 生成的锁文件
-- `demo-app/`：最小可运行 Web 示例（含 Playwright 测试）
-- `demo-app-20260327-1211/`：时间戳目录 · 简易超级玛丽 Canvas 小游戏（端口默认 `4174`）
+- `visualization/`：Compose 2.0 一键闭环平台（前端 + API + 运行引擎）
+  - `runs/`：每次运行证据产物（建议忽略，不入库）
+  - `projects/`：每次需求自动生成的独立代码目录（建议忽略，不入库）
+- `skills-lock.json`、`skills-lock.md`：skills 锁与说明
+- `.agents/`：本地技能目录（含 `playwright-fix-loop`）
+- `.claude/`、`.commandcode/`：若存在则按本地工具链保留
 
-## 已选最佳 Skills
-- 开发：`vercel-react-best-practices`
-- 测试：`webapp-testing`
-- 自动化：`subagent-driven-development` + `executing-plans`
-- 改善代码：`systematic-debugging`
-- 辅助：`writing-plans` + `verification-before-completion`
-- **测试修复闭环（本项目自定义）：`playwright-fix-loop`**
+## 历史模块（已归档）
 
-选择依据：优先 skills.sh 中安装量高且社区验证较充分的技能组合，满足你的"开发 + 测试 + 自动化 + 代码改进"目标。
+- `archive/apps/demo-app/`：订单折扣测试闭环示例
+- `archive/apps/demo-app-20260327-1211/`：超级玛丽示例
+- `archive/docs/`：历史演示文档（`demo-requirement.md`、`demo-prompts.md`、`runbook.md`）
 
 ## playwright-fix-loop 技能使用方式
 
@@ -70,7 +64,7 @@ npx skills add obra/superpowers@verification-before-completion -y
 
 ### 2) 运行 demo-app
 ```bash
-cd demo-app
+cd archive/apps/demo-app
 npm install
 npx playwright install chromium
 npm test
@@ -78,14 +72,53 @@ npm test
 
 当前代码已处于"修复后"状态，测试应通过。
 
-### 3) 在 Cursor 中演示闭环
-按 `demo-prompts.md` 的顺序给 Cursor 发送指令，即可复现完整流程。
+### 3) 平台快速启动
+
+```bash
+cd visualization
+npm install
+npm start
+```
+
+打开：`http://127.0.0.1:4180/`
+
+### 4) 在 Cursor 中演示闭环
+按 `archive/docs/demo-prompts.md` 的顺序给 Cursor 发送指令，即可复现完整流程。
 
 ## 如果要重新演示"先失败再修复"
-1. 在 `demo-app/public/index.html` 把 `subtotal * 0.9` 暂时改回 `subtotal * 0.95`。
+1. 在 `archive/apps/demo-app/public/index.html` 把 `subtotal * 0.9` 暂时改回 `subtotal * 0.95`（在该目录下执行后续 `npm test`）。
 2. 运行 `npm test` 观察失败。
 3. 再改回 `0.9`，重新测试通过。
 
+## 可安全清理项（可再生）
+
+以下目录删除后可通过安装/测试命令恢复：
+
+- `node_modules/`
+- `visualization/node_modules`
+- `visualization/runs`
+- `visualization/projects`
+- `visualization/test-results`
+- `visualization/playwright-report`
+- `archive/apps/**/node_modules`
+- `archive/apps/**/test-results`
+- `archive/apps/**/playwright-report`
+
+## 一键恢复建议
+
+```bash
+# 根工作区（如需）
+npm install
+
+# 核心平台
+cd visualization && npm install
+
+# 若需要运行历史 demo（归档目录）
+cd ../archive/apps/demo-app && npm install
+```
+
 ## 参考
+
 - Skills 官网目录：[skills.sh](https://skills.sh/)
-- 执行证据：见 `runbook.md`
+- 平台详细说明：`visualization/README.md`
+- 执行证据：见 `archive/docs/runbook.md`

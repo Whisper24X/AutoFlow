@@ -1,0 +1,18 @@
+{
+  "name": "autoflow-visualization",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AI 驱动软件工程流水线可视化平台",
+  "scripts": {
+    "start": "node server.js",
+    "test": "playwright test",
+    "verify:cdp": "node scripts/verify-cdp.cjs"
+  },
+  "dependencies": {
+    "express": "^5.2.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.59.1"
+  },
+  "type": "commonjs"
+}

@@ -1,8 +1,11 @@
-demo-app/node_modules
-demo-app/test-results
-demo-app/playwright-report
+node_modules/
 
-demo-app-*/node_modules
-demo-app-*/test-results
-demo-app-*/playwright-report
-
+visualization/node_modules
+# 旧版每 run 独立证据目录（新运行写入 projects/<name>/.autoflow/）
+visualization/runs
+visualization/projects
+visualization/test-results
+visualization/playwright-report
+archive/apps/**/node_modules
+archive/apps/**/test-results
+archive/apps/**/playwright-report

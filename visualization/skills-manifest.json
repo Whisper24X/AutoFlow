@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "strictMode": true,
+  "steps": {
+    "1": {
+      "name": "用户输入需求",
+      "skills": ["writing-plans"]
+    },
+    "2": {
+      "name": "AI自动拆解系统架构",
+      "skills": ["writing-plans"]
+    },
+    "3": {
+      "name": "多Agent协作完成开发",
+      "skills": ["subagent-driven-development"]
+    },
+    "4": {
+      "name": "自动生成测试用例与策略",
+      "skills": ["webapp-testing"]
+    },
+    "5": {
+      "name": "执行UI+API测试",
+      "skills": ["webapp-testing"]
+    },
+    "6": {
+      "name": "AI分析失败原因",
+      "skills": ["systematic-debugging"]
+    },
+    "7": {
+      "name": "自动修复代码",
+      "skills": ["executing-plans", "verification-before-completion"]
+    },
+    "8": {
+      "name": "持续迭代直到系统稳定",
+      "skills": ["verification-before-completion"]
+    }
+  }
+}

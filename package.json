@@ -1,0 +1,12 @@
+{
+  "name": "autoflow",
+  "private": true,
+  "description": "AutoFlow 仓库根（子项目在 workspaces 中）",
+  "workspaces": [
+    "visualization"
+  ],
+  "scripts": {
+    "start": "PORT=4173 npm run start -w visualization",
+    "test": "npm run test -w visualization"
+  }
+}

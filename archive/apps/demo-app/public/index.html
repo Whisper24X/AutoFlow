@@ -7,10 +7,14 @@
     <style>
       :root {
         color-scheme: light;
+        --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+        --font-mono: ui-monospace, "SF Mono", Menlo, "Consolas", monospace;
       }
       body {
         margin: 0;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-family: var(--font-sans);
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
         background: #f5f7fb;
         color: #0f172a;
       }
@@ -63,6 +67,7 @@
     <main class="container">
       <h1>订单价格计算器</h1>
       <p class="hint">需求：优惠码 <code>SAVE10</code> 应打 9 折。</p>
+      <p class="hint"><a href="/calculator.html">打开算术计算器（加减乘除）</a></p>
 
       <div class="row">
         <label for="price">单价</label>

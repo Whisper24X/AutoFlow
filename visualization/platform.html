@@ -1,0 +1,1690 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AutoFlow</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="shared-fonts.css" />
+  <style>
+    :root {
+      --bg: #0a0c10;
+      --surface: #12171f;
+      --elevated: #181f2a;
+      --border: #2a3441;
+      --text: #e8edf4;
+      --muted: #8b9cb3;
+      --accent: #e8a23c;
+      --accent-dim: rgba(232, 162, 60, 0.12);
+      --flow: #4a9eff;
+      --ok: #3ecf8e;
+      --warn: #f59e0b;
+      --err: #f87171;
+      --loop: #5cbf8a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: radial-gradient(ellipse 120% 80% at 50% -20%, #1a2332 0%, var(--bg) 55%);
+      color: var(--text);
+      font-family: var(--font-sans);
+      font-size: 14px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    code,
+    kbd,
+    samp,
+    pre {
+      font-family: var(--font-mono);
+    }
+    .shell { max-width: min(100%, 1600px); margin: 0 auto; padding: 28px 20px 80px; }
+    header { margin-bottom: 28px; }
+    h1 {
+      font-family: var(--font-display);
+      font-weight: 400;
+      font-size: clamp(1.5rem, 3.5vw, 2rem);
+      margin: 0 0 8px;
+      letter-spacing: -0.02em;
+    }
+    .sub { color: var(--muted); margin: 0; max-width: 62ch; }
+    .grid {
+      display: grid;
+      /* 右侧事件日志列加宽，避免长行过度折行 */
+      grid-template-columns: minmax(260px, 340px) minmax(0, 1fr) minmax(340px, min(44vw, 600px));
+      gap: 20px;
+      align-items: start;
+    }
+    @media (max-width: 1024px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 18px 18px 20px;
+    }
+    .panel h2 {
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin: 0 0 12px;
+      font-weight: 600;
+    }
+    textarea#requirement {
+      width: 100%;
+      min-height: 120px;
+      padding: 12px 14px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--elevated);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 0.92rem;
+      resize: vertical;
+    }
+    textarea#requirement:focus {
+      outline: none;
+      border-color: rgba(74, 158, 255, 0.5);
+    }
+    .field {
+      margin-top: 12px;
+      display: grid;
+      gap: 6px;
+    }
+    .field label {
+      color: var(--muted);
+      font-size: 0.8rem;
+      letter-spacing: 0.02em;
+    }
+    .field input,
+    .field select {
+      width: 100%;
+      border-radius: 9px;
+      border: 1px solid var(--border);
+      background: var(--elevated);
+      color: var(--text);
+      padding: 9px 11px;
+      font-family: inherit;
+      font-size: 0.86rem;
+    }
+    .field input[type="checkbox"],
+    .field input[type="radio"] {
+      width: auto;
+      min-width: 1.125rem;
+      padding: 0;
+      border-radius: 4px;
+      accent-color: var(--flow);
+    }
+    .step-toggles-field { margin-top: 10px; }
+    .step-toggles-field > label {
+      font-size: 0.76rem;
+    }
+    .step-toggle-rows {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-top: 6px;
+      padding: 0;
+      border: none;
+      background: transparent;
+    }
+    .step-toggle-row {
+      display: grid;
+      grid-template-columns: 22px 1fr auto;
+      gap: 6px 8px;
+      align-items: center;
+      padding: 5px 8px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--elevated);
+      font-size: 0.74rem;
+      line-height: 1.28;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .step-toggle-row:hover {
+      border-color: rgba(74, 158, 255, 0.35);
+    }
+    .step-toggle-row input[type="checkbox"] {
+      width: 0.95rem;
+      height: 0.95rem;
+      margin: 0;
+      cursor: pointer;
+    }
+    .step-toggle-row input[type="checkbox"]:disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+    .step-toggle-num {
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 0.65rem;
+      background: var(--accent-dim);
+      color: var(--accent);
+      flex-shrink: 0;
+    }
+    .step-toggle-main {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+    .step-toggle-hit .step-toggle-title {
+      color: var(--text);
+      font-weight: 600;
+      font-size: 0.74rem;
+      line-height: 1.2;
+    }
+    .step-toggle-row label.step-toggle-hit {
+      cursor: pointer;
+      margin: 0;
+      color: inherit;
+      font-size: inherit;
+      letter-spacing: normal;
+    }
+    .step-toggles-field .btn-row {
+      margin-top: 8px;
+      gap: 6px;
+    }
+    .step-toggles-field .btn-row button {
+      padding: 6px 10px;
+      font-size: 0.76rem;
+      border-radius: 8px;
+    }
+    .step-toggle-row.row-locked .step-toggle-num {
+      background: rgba(148, 163, 184, 0.15);
+      color: var(--muted);
+    }
+    .step-toggle-row.row-locked .step-toggle-title {
+      color: var(--muted);
+    }
+    .step5-dep-banner {
+      display: none;
+      margin-top: 10px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px dashed rgba(245, 158, 11, 0.45);
+      background: rgba(245, 158, 11, 0.08);
+      color: var(--warn);
+      font-size: 0.78rem;
+      line-height: 1.45;
+    }
+    .step5-dep-banner.visible { display: block; }
+    .btn-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+    button {
+      cursor: pointer;
+      border: 1px solid var(--border);
+      background: var(--elevated);
+      color: var(--text);
+      padding: 10px 16px;
+      border-radius: 10px;
+      font-family: inherit;
+      font-size: 0.88rem;
+      font-weight: 500;
+      transition: background 0.2s, border-color 0.2s;
+    }
+    button.primary {
+      background: linear-gradient(135deg, rgba(74, 158, 255, 0.25), rgba(232, 162, 60, 0.12));
+      border-color: rgba(74, 158, 255, 0.45);
+    }
+    button.primary:hover { border-color: var(--flow); }
+    button.ghost:hover { border-color: var(--muted); }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    .pipeline-wrap { position: relative; }
+    .pipeline-steps { display: flex; flex-direction: column; gap: 10px; }
+    .step {
+      display: grid;
+      grid-template-columns: 36px 1fr;
+      gap: 12px;
+      align-items: start;
+      padding: 12px 14px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: var(--elevated);
+      transition: border-color 0.35s, box-shadow 0.35s;
+    }
+    .step-num {
+      width: 32px;
+      height: 32px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 0.85rem;
+      background: var(--accent-dim);
+      color: var(--accent);
+    }
+    .step.pending .step-num { opacity: 0.55; }
+    .step.active {
+      border-color: rgba(74, 158, 255, 0.55);
+      box-shadow: 0 0 0 1px rgba(74, 158, 255, 0.15);
+    }
+    .step.active .step-num { background: rgba(74, 158, 255, 0.2); color: var(--flow); }
+    .step.done .step-num { background: rgba(62, 207, 142, 0.2); color: var(--ok); }
+    .step.error .step-num { background: rgba(248, 113, 113, 0.2); color: var(--err); }
+    .step.fixing .step-num { background: rgba(245, 158, 11, 0.2); color: var(--warn); }
+    .step.skipped {
+      border-style: dashed;
+      opacity: 0.88;
+      border-color: rgba(100, 116, 139, 0.55);
+    }
+    .step.skipped .step-num {
+      background: rgba(148, 163, 184, 0.12);
+      color: var(--muted);
+    }
+
+    .step-title { font-weight: 600; margin: 0 0 4px; font-size: 0.98rem; }
+    .step-skill { margin-top: 6px; color: #9dc3ff; font-size: 0.74rem; font-family: var(--font-mono); min-height: 1.2em; }
+    .step-hint { margin-top: 8px; font-size: 0.75rem; color: var(--muted); font-family: var(--font-mono); opacity: 0.85; min-height: 1.2em; }
+
+    .loop-banner {
+      margin-top: 16px;
+      padding: 14px 16px;
+      border-radius: 12px;
+      border: 1px dashed rgba(92, 191, 138, 0.45);
+      background: rgba(92, 191, 138, 0.06);
+      font-size: 0.82rem;
+      color: var(--loop);
+      text-align: center;
+    }
+    .loop-banner strong { color: var(--text); }
+
+    .log-panel {
+      max-height: min(75vh, 720px);
+      overflow: auto;
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+      line-height: 1.6;
+      background: #0d1117;
+      border-radius: 10px;
+      padding: 14px 16px;
+      border: 1px solid var(--border);
+    }
+    .log-line { margin: 0 0 6px; word-break: break-word; }
+    .log-line.t { color: #64748b; }
+    .log-line.ok { color: var(--ok); }
+    .log-line.err { color: var(--err); }
+    .log-line.run { color: var(--flow); }
+    .log-line.warn { color: var(--warn); }
+    .failure-card {
+      margin-top: 12px;
+      border: 1px solid rgba(248, 113, 113, 0.45);
+      background: rgba(248, 113, 113, 0.08);
+      border-radius: 10px;
+      padding: 10px 12px;
+      display: none;
+    }
+    .failure-card h3 {
+      margin: 0 0 6px;
+      font-size: 0.84rem;
+      color: #fecaca;
+      font-weight: 600;
+    }
+    .failure-card .failure-brief {
+      margin: 0 0 8px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.25);
+      color: #fecaca;
+      font-size: 0.8rem;
+      line-height: 1.45;
+      border-left: 3px solid var(--err);
+    }
+    .failure-card pre {
+      margin: 0;
+      white-space: pre-wrap;
+      font-family: var(--font-mono);
+      font-size: 0.76rem;
+      color: #fee2e2;
+      max-height: min(42vh, 360px);
+      overflow: auto;
+    }
+    .cdp-card {
+      margin-top: 12px;
+      border: 1px solid rgba(74, 158, 255, 0.45);
+      background: rgba(74, 158, 255, 0.08);
+      border-radius: 10px;
+      padding: 10px 12px;
+    }
+    .project-card {
+      margin-top: 12px;
+      border: 1px solid rgba(62, 207, 142, 0.45);
+      background: rgba(62, 207, 142, 0.08);
+      border-radius: 10px;
+      padding: 10px 12px;
+    }
+    .project-card h3 {
+      margin: 0 0 6px;
+      font-size: 0.84rem;
+      color: #bbf7d0;
+      font-weight: 600;
+    }
+    .project-card pre {
+      margin: 0;
+      white-space: pre-wrap;
+      font-family: var(--font-mono);
+      font-size: 0.76rem;
+      color: #dcfce7;
+      word-break: break-all;
+    }
+    .cdp-card h3 {
+      margin: 0 0 6px;
+      font-size: 0.84rem;
+      color: #bfdbfe;
+      font-weight: 600;
+    }
+    .cdp-meta {
+      margin: 0;
+      white-space: pre-wrap;
+      font-family: var(--font-mono);
+      font-size: 0.76rem;
+      color: #dbeafe;
+    }
+    .run-activity {
+      margin-bottom: 12px;
+      border: 1px solid rgba(74, 158, 255, 0.45);
+      background: rgba(74, 158, 255, 0.08);
+      border-radius: 10px;
+      padding: 9px 11px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .run-activity-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+    .run-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 999px;
+      background: var(--flow);
+      box-shadow: 0 0 0 rgba(74, 158, 255, 0.4);
+      animation: pulseDot 1.4s infinite;
+      flex: 0 0 auto;
+    }
+    .run-activity.stale .run-dot {
+      background: var(--warn);
+      box-shadow: 0 0 0 rgba(245, 158, 11, 0.35);
+      animation-duration: 1.8s;
+    }
+    .run-activity.done .run-dot {
+      background: var(--ok);
+      animation: none;
+    }
+    .run-label {
+      font-size: 0.8rem;
+      color: #dbeafe;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 420px;
+    }
+    .run-timer {
+      font-family: var(--font-mono);
+      color: #bfdbfe;
+      font-size: 0.78rem;
+      flex: 0 0 auto;
+    }
+    @keyframes pulseDot {
+      0% { box-shadow: 0 0 0 0 rgba(74, 158, 255, 0.4); }
+      70% { box-shadow: 0 0 0 10px rgba(74, 158, 255, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(74, 158, 255, 0); }
+    }
+
+    .progress-outer {
+      height: 4px;
+      background: var(--border);
+      border-radius: 2px;
+      margin-bottom: 16px;
+      overflow: hidden;
+    }
+    .progress-inner {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--flow), var(--accent));
+      border-radius: 2px;
+      transition: width 0.45s ease;
+    }
+    footer.note {
+      margin-top: 28px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 0.8rem;
+    }
+    footer.note a { color: var(--flow); }
+
+    .completed-panel { margin-top: 20px; }
+    .completed-panel .completed-note {
+      font-size: 0.74rem;
+      color: var(--muted);
+      margin: 0 0 12px;
+      max-width: 96ch;
+      line-height: 1.45;
+    }
+    .completed-panel .completed-note code {
+      font-size: 0.72rem;
+      color: #cbd5e1;
+      background: var(--elevated);
+      padding: 2px 6px;
+      border-radius: 6px;
+    }
+    .completed-toolbar { margin-bottom: 10px; }
+    .completed-table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--elevated);
+    }
+    .completed-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+    }
+    .completed-table th,
+    .completed-table td {
+      padding: 8px 10px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    .completed-table th {
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      background: var(--surface);
+    }
+    .completed-table tr:last-child td { border-bottom: none; }
+    .completed-table .cell-mono {
+      font-family: var(--font-mono);
+      font-size: 0.76rem;
+      word-break: break-all;
+    }
+    .completed-table .cell-actions { white-space: nowrap; }
+    .completed-table .cell-probe { white-space: nowrap; max-width: 14em; }
+    .probe-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-size: 0.72rem;
+      font-weight: 600;
+    }
+    .probe-pending { color: var(--muted); background: var(--surface); }
+    .probe-ok { color: #86efac; background: rgba(34, 197, 94, 0.15); }
+    .probe-off { color: #fca5a5; background: rgba(239, 68, 68, 0.12); }
+    .completed-table a { color: var(--flow); }
+    .completed-table button.sm {
+      padding: 6px 10px;
+      font-size: 0.78rem;
+      margin-right: 6px;
+    }
+    .completed-empty { margin: 14px; color: var(--muted); font-size: 0.82rem; }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <h1>AutoFlow</h1>
+      <p class="sub">
+        用自然语言描述需求，勾选要跑的步骤即可串联从拆解、实现到测试的流水线；第 5 步在生成子项目中用 Playwright 或 MCP 做浏览器与接口真测。
+      </p>
+    </header>
+
+    <div class="grid">
+      <aside class="panel">
+        <h2>需求输入</h2>
+        <textarea id="requirement" placeholder="用自然语言描述需求…"></textarea>
+        <div class="field">
+          <label for="model">Compose 模型</label>
+          <select id="model">
+            <option value="composer-2-fast" selected>composer-2-fast（默认）</option>
+            <option value="composer-2">composer-2</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="maxIterations">最大修复迭代（5→6→7 循环）</label>
+          <input id="maxIterations" type="number" min="1" max="10" value="3" />
+        </div>
+        <div class="field">
+          <label for="cdpDriver">步骤 5 CDP 驱动</label>
+          <select id="cdpDriver">
+            <option value="playwright" selected>Playwright（默认）</option>
+            <option value="cursor_mcp">Cursor MCP</option>
+          </select>
+        </div>
+        <div class="field">
+          <label class="step-toggle-hit" for="cdpHeaded" style="display: flex; align-items: center; gap: 10px; cursor: pointer">
+            <input type="checkbox" id="cdpHeaded" />
+            <span class="step-toggle-title" style="font-weight: 600">CDP 有头（仅 Playwright）</span>
+          </label>
+          <label for="cdpLingerMs" style="margin-top: 10px; display: block">有头停留（ms）</label>
+          <input id="cdpLingerMs" type="number" min="0" max="60000" value="3000" style="max-width: 140px" />
+        </div>
+        <div class="field">
+          <label for="existingProjectPath">已有项目目录（可选）</label>
+          <input
+            id="existingProjectPath"
+            type="text"
+            placeholder="留空新建；可填相对或绝对路径"
+          />
+        </div>
+        <div class="field step-toggles-field">
+          <label>流水线步骤</label>
+          <div class="step-toggle-rows" id="stepToggleRows"></div>
+          <p class="step5-dep-banner" id="step5DepBanner" role="status">
+            未勾选步骤 5 时不会执行 CDP 真测与步骤 6、7。
+          </p>
+          <div class="btn-row">
+            <button type="button" class="ghost" id="btn-step-all">全选</button>
+            <button type="button" class="ghost" id="btn-step-default">恢复默认</button>
+          </div>
+        </div>
+        <div class="btn-row">
+          <button type="button" class="primary" id="btn-run">一键运行闭环</button>
+          <button type="button" class="ghost" id="btn-stop">停止运行</button>
+        </div>
+        <div class="btn-row">
+          <button type="button" class="ghost" id="btn-reset">重置视图</button>
+          <button type="button" class="ghost" id="btn-copy">复制复盘报告</button>
+          <button type="button" class="ghost" id="btn-open-playwright-report" disabled>打开测试报告</button>
+          <button type="button" class="ghost" id="btn-open-playwright-zh" disabled>打开中文摘要</button>
+        </div>
+      </aside>
+
+      <section class="panel pipeline-wrap">
+        <h2>流水线阶段</h2>
+        <div class="run-activity" id="runActivity" hidden>
+          <div class="run-activity-left">
+            <span class="run-dot" aria-hidden="true"></span>
+            <span class="run-label" id="runActivityLabel">CLI running...</span>
+          </div>
+          <span class="run-timer" id="runActivityTimer">00:00</span>
+        </div>
+        <div class="progress-outer"><div class="progress-inner" id="progress"></div></div>
+        <div class="pipeline-steps" id="steps"></div>
+        <div class="loop-banner" id="loopHint" hidden>
+          <strong>5→6→7→5</strong> 修复循环中
+        </div>
+      </section>
+
+      <aside class="panel">
+        <h2>事件日志</h2>
+        <div class="log-panel" id="log" aria-live="polite"></div>
+        <div class="cdp-card" id="cdpCard">
+          <h3>CDP 真测状态</h3>
+          <pre class="cdp-meta" id="cdpText">等待运行...</pre>
+        </div>
+        <div class="project-card" id="projectCard">
+          <h3>本次项目目录</h3>
+          <pre id="projectPathText">等待运行...</pre>
+        </div>
+        <div class="failure-card" id="failureCard">
+          <h3>步骤5 测试失败</h3>
+          <div id="failureBrief" class="failure-brief" style="display: none"></div>
+          <pre id="failureText"></pre>
+        </div>
+      </aside>
+    </div>
+
+    <section class="panel completed-panel">
+      <h2>已完成项目（历史）</h2>
+      <p class="completed-note">
+        来自各项目 <code>.autoflow/report.md</code>（<code>completed</code>）。「刷新列表」只重新读取报告。        可点「启动子项目」由本平台后台执行
+        <code>npm run start</code>（<code>PORT</code> 与报告一致），日志写入该项目 <code>.autoflow/subproject-server.log</code>；「停止子项目」仅作用于由本平台拉起的进程。也可手动在目录执行
+        <code>PORT=&lt;端口&gt; npm start</code>，在运行该命令的终端按 Ctrl+C 结束。确认「应用状态」为在线后再打开链接。
+      </p>
+      <div class="completed-toolbar">
+        <button type="button" class="ghost" id="btn-refresh-completed">刷新列表</button>
+      </div>
+      <div id="completedRunsBody" class="completed-table-wrap" aria-live="polite"></div>
+    </section>
+
+    <footer class="note">API + SSE；<code>cursor agent</code> 执行步骤。</footer>
+  </div>
+
+  <script>
+    const STEPS = [
+      { id: 1, title: "用户输入需求", skills: ["writing-plans"] },
+      { id: 2, title: "AI 自动拆解系统架构", skills: ["writing-plans"] },
+      { id: 3, title: "多Agent协作完成开发", skills: ["subagent-driven-development"] },
+      { id: 4, title: "自动生成测试用例与策略", skills: ["webapp-testing"] },
+      { id: 5, title: "执行UI+API测试", skills: ["webapp-testing"] },
+      { id: 6, title: "AI分析失败原因", skills: ["systematic-debugging"] },
+      { id: 7, title: "自动修复代码", skills: ["executing-plans", "verification-before-completion"] },
+      { id: 8, title: "持续迭代直到系统稳定", skills: ["verification-before-completion"] }
+    ];
+
+    const stepsEl = document.getElementById("steps");
+    const logEl = document.getElementById("log");
+    const progressEl = document.getElementById("progress");
+    const loopHint = document.getElementById("loopHint");
+    const runActivityEl = document.getElementById("runActivity");
+    const runActivityLabelEl = document.getElementById("runActivityLabel");
+    const runActivityTimerEl = document.getElementById("runActivityTimer");
+    const reqEl = document.getElementById("requirement");
+    const modelEl = document.getElementById("model");
+    const maxIterationsEl = document.getElementById("maxIterations");
+    const cdpHeadedEl = document.getElementById("cdpHeaded");
+    const cdpLingerMsEl = document.getElementById("cdpLingerMs");
+    const cdpDriverEl = document.getElementById("cdpDriver");
+    const existingProjectPathEl = document.getElementById("existingProjectPath");
+    const failureCardEl = document.getElementById("failureCard");
+    const failureBriefEl = document.getElementById("failureBrief");
+    const failureTextEl = document.getElementById("failureText");
+    const cdpTextEl = document.getElementById("cdpText");
+    const projectPathTextEl = document.getElementById("projectPathText");
+    const btnRun = document.getElementById("btn-run");
+    const btnStop = document.getElementById("btn-stop");
+    const btnReset = document.getElementById("btn-reset");
+    const btnCopy = document.getElementById("btn-copy");
+    const btnOpenPlaywrightReport = document.getElementById("btn-open-playwright-report");
+    const btnOpenPlaywrightZh = document.getElementById("btn-open-playwright-zh");
+    const completedRunsBodyEl = document.getElementById("completedRunsBody");
+    const btnRefreshCompleted = document.getElementById("btn-refresh-completed");
+    const stepToggleRowsEl = document.getElementById("stepToggleRows");
+    const step5DepBannerEl = document.getElementById("step5DepBanner");
+    const btnStepAll = document.getElementById("btn-step-all");
+    const btnStepDefault = document.getElementById("btn-step-default");
+
+    let currentRunId = null;
+    /** 与本次 run 的 cdpDriver 对齐（run_started / applyRun 写入），用于步骤 5 顶部文案 */
+    let currentRunCdpDriver = "playwright";
+    let eventSource = null;
+    let latestRun = null;
+    let runStartedAtMs = 0;
+    let lastHeartbeatMs = 0;
+    let activityTicker = null;
+    let idleAnnounced = false;
+    let dotCount = 0;
+
+    function formatDuration(ms) {
+      const safe = Math.max(0, Math.floor(ms / 1000));
+      const mm = String(Math.floor(safe / 60)).padStart(2, "0");
+      const ss = String(safe % 60).padStart(2, "0");
+      return `${mm}:${ss}`;
+    }
+
+    function truncateUi(text, max) {
+      const t = String(text || "").trim();
+      if (t.length <= max) return t;
+      return `${t.slice(0, Math.max(0, max - 1))}…`;
+    }
+
+    function stopActivityTicker() {
+      if (activityTicker) {
+        clearInterval(activityTicker);
+        activityTicker = null;
+      }
+    }
+
+    function renderActivityTick() {
+      if (!runStartedAtMs || runActivityEl.hidden) return;
+      runActivityTimerEl.textContent = formatDuration(Date.now() - runStartedAtMs);
+      const idleFor = Date.now() - lastHeartbeatMs;
+      runActivityEl.classList.toggle("stale", idleFor > 7000);
+      if (idleFor > 7000 && !idleAnnounced) {
+        idleAnnounced = true;
+        logLine("CLI 仍在执行，等待返回中...", "warn");
+      }
+      dotCount = (dotCount + 1) % 4;
+      const dots = ".".repeat(dotCount);
+      if (!runActivityEl.classList.contains("stale")) {
+        const base = runActivityLabelEl.dataset.base || "CLI running";
+        runActivityLabelEl.textContent = `${base}${dots}`;
+      }
+    }
+
+    function startActivity(label) {
+      const nowMs = Date.now();
+      if (!runStartedAtMs) runStartedAtMs = nowMs;
+      lastHeartbeatMs = nowMs;
+      idleAnnounced = false;
+      runActivityEl.hidden = false;
+      runActivityEl.classList.remove("done", "stale");
+      runActivityLabelEl.dataset.base = label || "CLI running";
+      runActivityLabelEl.textContent = runActivityLabelEl.dataset.base;
+      renderActivityTick();
+      stopActivityTicker();
+      activityTicker = setInterval(renderActivityTick, 500);
+    }
+
+    function heartbeatActivity(label, elapsedMs) {
+      lastHeartbeatMs = Date.now();
+      idleAnnounced = false;
+      runActivityEl.classList.remove("stale");
+      const base = label || "CLI running";
+      runActivityLabelEl.dataset.base = base;
+      runActivityLabelEl.textContent = base;
+      if (typeof elapsedMs === "number" && Number.isFinite(elapsedMs)) {
+        runStartedAtMs = Date.now() - Math.max(0, elapsedMs);
+      }
+    }
+
+    function finishActivity(label) {
+      if (runActivityEl.hidden) return;
+      runActivityEl.classList.remove("stale");
+      runActivityEl.classList.add("done");
+      if (label) runActivityLabelEl.textContent = label;
+      stopActivityTicker();
+    }
+
+    function setProgress(v) {
+      progressEl.style.width = Math.max(0, Math.min(100, v)) + "%";
+    }
+
+    function estimateProgress(run) {
+      if (!run || !run.steps?.length) return 0;
+      const done = run.steps.filter(
+        (s) => s.status === "done" || s.status === "skipped"
+      ).length;
+      const active = run.steps.filter((s) => s.status === "active").length;
+      const error = run.steps.filter((s) => s.status === "error").length;
+      let p = (done / run.steps.length) * 100;
+      if (active) {
+        const activeIds = run.steps.filter((s) => s.status === "active").map((s) => s.id);
+        p += activeIds.includes(5) ? 12 : 4;
+      }
+      if (error) p -= 2;
+      return Math.max(2, Math.min(100, Math.round(p)));
+    }
+
+    /** 运行中主要靠 SSE 的 step_status 更新 DOM；须同步 latestRun 才能刷新进度条（run_snapshot 仅在结束时推送）。 */
+    function applyStepStatusToLatestRun(payload) {
+      if (!latestRun?.steps?.length || !payload) return;
+      const stepId = payload.stepId;
+      const st = latestRun.steps.find((s) => s.id === stepId);
+      if (!st) return;
+      if (payload.status) st.status = payload.status;
+      if (payload.hint !== undefined) st.hint = payload.hint;
+      if (payload.requiredSkills?.length) st.requiredSkills = payload.requiredSkills;
+    }
+
+    function updateStep5DependencyBanner() {
+      const c5 = document.getElementById("step-enable-5");
+      if (!step5DepBannerEl || !c5) return;
+      step5DepBannerEl.classList.toggle("visible", !c5.checked);
+    }
+
+    function wireStepToggleDependencies() {
+      const c5 = document.getElementById("step-enable-5");
+      const c6 = document.getElementById("step-enable-6");
+      const c7 = document.getElementById("step-enable-7");
+      if (!c5 || !c6 || !c7) return;
+      const sync = () => {
+        if (c7.checked) {
+          c5.checked = true;
+          c6.checked = true;
+        } else if (c6.checked) {
+          c5.checked = true;
+        }
+        if (!c5.checked) {
+          c6.checked = false;
+          c7.checked = false;
+        } else if (!c6.checked) {
+          c7.checked = false;
+        }
+        updateStep5DependencyBanner();
+      };
+      [c5, c6, c7].forEach((el) => el.addEventListener("change", sync));
+      updateStep5DependencyBanner();
+    }
+
+    function renderStepToggleRows() {
+      stepToggleRowsEl.innerHTML = "";
+      STEPS.forEach((s) => {
+        const row = document.createElement("div");
+        row.className = "step-toggle-row";
+        if (s.id === 1) row.classList.add("row-locked");
+
+        const num = document.createElement("span");
+        num.className = "step-toggle-num";
+        num.textContent = String(s.id);
+        num.setAttribute("aria-hidden", "true");
+
+        const main = document.createElement("div");
+        main.className = "step-toggle-main";
+
+        const hit = document.createElement("label");
+        hit.className = "step-toggle-hit";
+        hit.htmlFor = `step-enable-${s.id}`;
+
+        const title = document.createElement("span");
+        title.className = "step-toggle-title";
+        title.textContent = s.title;
+
+        hit.appendChild(title);
+        main.appendChild(hit);
+
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.id = `step-enable-${s.id}`;
+        cb.checked = true;
+        cb.disabled = s.id === 1;
+
+        row.appendChild(num);
+        row.appendChild(main);
+        row.appendChild(cb);
+        stepToggleRowsEl.appendChild(row);
+      });
+      wireStepToggleDependencies();
+    }
+
+    function setStepTogglesDefault() {
+      for (let i = 1; i <= 8; i++) {
+        const el = document.getElementById(`step-enable-${i}`);
+        if (!el) continue;
+        el.checked = true;
+        el.disabled = i === 1;
+      }
+      updateStep5DependencyBanner();
+    }
+
+    function getEnabledStepIdsFromUI() {
+      const ids = [];
+      for (let i = 1; i <= 8; i++) {
+        const el = document.getElementById(`step-enable-${i}`);
+        if (el && el.checked) ids.push(i);
+      }
+      if (!ids.includes(1)) ids.push(1);
+      return [...new Set(ids)].sort((a, b) => a - b);
+    }
+
+    function validateEnabledStepIdsForClient(ids) {
+      const set = new Set(ids);
+      if (set.has(7) && (!set.has(6) || !set.has(5))) {
+        return "启用步骤 7 时必须同时启用步骤 5 与 6";
+      }
+      if (set.has(6) && !set.has(5)) return "启用步骤 6 时必须启用步骤 5";
+      return "";
+    }
+
+    function logLine(text, cls = "") {
+      const t = new Date().toLocaleTimeString("zh-CN", { hour12: false });
+      const div = document.createElement("div");
+      div.className = "log-line " + cls;
+      div.textContent = `[${t}] ${text}`;
+      logEl.appendChild(div);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    async function copyTextToClipboard(text, okMsg) {
+      try {
+        await navigator.clipboard.writeText(text);
+        if (okMsg) logLine(okMsg, "ok");
+      } catch {
+        window.prompt("请手动复制", text);
+      }
+    }
+
+    function probePortFromRow(row) {
+      if (row.appPort != null && row.appPort !== "") {
+        const n = Number.parseInt(String(row.appPort), 10);
+        if (Number.isFinite(n)) return n;
+      }
+      if (row.appUrl) {
+        try {
+          const u = new URL(row.appUrl);
+          if (u.port) return Number.parseInt(u.port, 10);
+        } catch {
+          /* ignore */
+        }
+      }
+      return null;
+    }
+
+    async function renderCompletedTable(runs) {
+      completedRunsBodyEl.innerHTML = "";
+      if (!runs.length) {
+        const p = document.createElement("p");
+        p.className = "completed-empty";
+        p.textContent = "暂无已完成记录（流水线成功结束后会写入 report.md）。";
+        completedRunsBodyEl.appendChild(p);
+        return;
+      }
+      const table = document.createElement("table");
+      table.className = "completed-table";
+      const thead = document.createElement("thead");
+      thead.innerHTML =
+        "<tr><th>runId</th><th>结束时间</th><th>需求摘要</th><th>项目目录</th><th>访问地址</th><th>应用状态</th><th>操作</th></tr>";
+      table.appendChild(thead);
+      const tb = document.createElement("tbody");
+      const probeCells = [];
+      for (const row of runs) {
+        const tr = document.createElement("tr");
+        const idTd = document.createElement("td");
+        idTd.className = "cell-mono";
+        idTd.textContent = row.id || "-";
+        const finTd = document.createElement("td");
+        finTd.textContent = row.finishedAt || "-";
+        const reqTd = document.createElement("td");
+        reqTd.textContent = row.requirementPreview || "-";
+        reqTd.style.maxWidth = "260px";
+        const pathTd = document.createElement("td");
+        pathTd.className = "cell-mono";
+        pathTd.textContent = row.projectPath || "-";
+        const urlTd = document.createElement("td");
+        urlTd.className = "cell-mono";
+        if (row.appUrl) {
+          const a = document.createElement("a");
+          a.href = row.appUrl;
+          a.target = "_blank";
+          a.rel = "noopener noreferrer";
+          a.textContent = row.appUrl;
+          urlTd.appendChild(a);
+        } else {
+          urlTd.textContent = "-";
+        }
+        const probeTd = document.createElement("td");
+        probeTd.className = "cell-probe";
+        const pNum = probePortFromRow(row);
+        if (pNum != null) {
+          const span = document.createElement("span");
+          span.className = "probe-badge probe-pending";
+          span.textContent = "检测中…";
+          probeTd.appendChild(span);
+          probeCells.push({ span, port: pNum });
+        } else {
+          probeTd.textContent = "—";
+        }
+        const actTd = document.createElement("td");
+        actTd.className = "cell-actions";
+        if (row.appUrl) {
+          const bCopy = document.createElement("button");
+          bCopy.type = "button";
+          bCopy.className = "ghost sm";
+          bCopy.textContent = "复制链接";
+          bCopy.addEventListener("click", () =>
+            copyTextToClipboard(row.appUrl, "已复制访问地址。")
+          );
+          actTd.appendChild(bCopy);
+        }
+        if (row.projectPath && pNum != null) {
+          const bStart = document.createElement("button");
+          bStart.type = "button";
+          bStart.className = "ghost sm";
+          bStart.textContent = "启动子项目";
+          bStart.title = "在本机执行 npm run start，并设置 PORT";
+          bStart.addEventListener("click", async () => {
+            bStart.disabled = true;
+            try {
+              const r = await fetch("/api/start-subproject", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ projectPath: row.projectPath, port: pNum })
+              });
+              const data = await r.json().catch(() => ({}));
+              if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+              logLine(data.message || "已处理。", "ok");
+              setTimeout(() => loadCompletedRuns(), 2000);
+            } catch (e) {
+              logLine(`启动失败: ${e.message}`, "err");
+            } finally {
+              bStart.disabled = false;
+            }
+          });
+          actTd.appendChild(bStart);
+          const bStop = document.createElement("button");
+          bStop.type = "button";
+          bStop.className = "ghost sm";
+          bStop.textContent = "停止子项目";
+          bStop.title = "结束由本平台启动的 npm 子进程（SIGTERM）";
+          bStop.addEventListener("click", async () => {
+            bStop.disabled = true;
+            try {
+              const r = await fetch("/api/stop-subproject", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ projectPath: row.projectPath })
+              });
+              const data = await r.json().catch(() => ({}));
+              if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+              logLine(data.message || "已请求停止。", "ok");
+              setTimeout(() => loadCompletedRuns(), 1500);
+            } catch (e) {
+              logLine(`停止失败: ${e.message}`, "err");
+            } finally {
+              bStop.disabled = false;
+            }
+          });
+          actTd.appendChild(bStop);
+        }
+        tr.append(idTd, finTd, reqTd, pathTd, urlTd, probeTd, actTd);
+        tb.appendChild(tr);
+      }
+      table.appendChild(tb);
+      completedRunsBodyEl.appendChild(table);
+      await Promise.all(
+        probeCells.map(({ span, port }) =>
+          fetch(`/api/probe-app?port=${encodeURIComponent(port)}`)
+            .then((r) => r.json())
+            .then((data) => {
+              span.className = "probe-badge " + (data.ok ? "probe-ok" : "probe-off");
+              span.textContent = data.ok ? "在线" : data.reason || "离线";
+              span.title = data.ok
+                ? "本机该端口响应 /api/health 且 HTTP 200"
+                : data.reason || "";
+            })
+            .catch(() => {
+              span.className = "probe-badge probe-off";
+              span.textContent = "探测失败";
+              span.title = "";
+            })
+        )
+      );
+    }
+
+    async function loadCompletedRuns() {
+      completedRunsBodyEl.innerHTML = "";
+      const loading = document.createElement("p");
+      loading.className = "completed-empty";
+      loading.textContent = "加载中…";
+      completedRunsBodyEl.appendChild(loading);
+      try {
+        let resp = await fetch("/api/completed-runs");
+        if (resp.status === 404) {
+          resp = await fetch("/api/runs/completed");
+        }
+        const rawText = await resp.text();
+        const ct = (resp.headers.get("content-type") || "").toLowerCase();
+        let data;
+        if (ct.includes("application/json")) {
+          try {
+            data = JSON.parse(rawText);
+          } catch {
+            throw new Error(`响应不是合法 JSON（HTTP ${resp.status}）`);
+          }
+        } else {
+          throw new Error(
+            `接口未返回 JSON（HTTP ${resp.status}）。请确认页面是由「node visualization/server.js」提供，并已重启进程。原文片段：${rawText.slice(0, 180)}`
+          );
+        }
+        if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+        await renderCompletedTable(data.runs || []);
+      } catch (err) {
+        completedRunsBodyEl.innerHTML = "";
+        const p = document.createElement("p");
+        p.className = "completed-empty";
+        p.style.color = "var(--err)";
+        p.textContent = `加载失败: ${err.message}`;
+        completedRunsBodyEl.appendChild(p);
+      }
+    }
+
+    function renderSteps() {
+      stepsEl.innerHTML = "";
+      STEPS.forEach((s) => {
+        const el = document.createElement("div");
+        el.className = "step pending";
+        el.dataset.step = String(s.id);
+        el.innerHTML = `<div class="step-num">${s.id}</div><div><div class="step-title">${s.title}</div><div class="step-skill" data-skill>skills: ${s.skills.join(", ")}</div><div class="step-hint" data-hint></div></div>`;
+        stepsEl.appendChild(el);
+      });
+    }
+
+    function setCdpText(lines) {
+      cdpTextEl.textContent = lines.join("\n");
+    }
+
+    function setProjectPathText(run) {
+      const projectPath = run?.projectPath || run?.workspacePath || "-";
+      const appPort = run?.appPort || "-";
+      const mode = run?.useExistingWorkspace ? "mode: 已有目录增量" : "mode: 新建工作区";
+      const driverLine = run?.cdpDriver ? `cdpDriver: ${run.cdpDriver}` : "";
+      const headedLine =
+        run?.cdpHeaded != null
+          ? `cdpHeaded: ${run.cdpHeaded ? "true" : "false"}, cdpLingerMs: ${run.cdpLingerMs ?? "-"}`
+          : "";
+      const art = run?.artifactDir || "";
+      const artLine = art ? `artifactDir: ${art}` : "";
+      projectPathTextEl.textContent = [`path: ${projectPath}`, `appPort: ${appPort}`, mode, driverLine, headedLine, artLine]
+        .filter(Boolean)
+        .join("\n");
+    }
+
+    function syncCdpHeadedForDriver() {
+      if (!cdpDriverEl || !cdpHeadedEl || !cdpLingerMsEl) return;
+      const mcp = cdpDriverEl.value === "cursor_mcp";
+      cdpHeadedEl.disabled = mcp;
+      cdpLingerMsEl.disabled = mcp;
+    }
+
+    function applyRun(run) {
+      latestRun = run;
+      if (!run?.steps) return;
+      if (run.cdpDriver) currentRunCdpDriver = run.cdpDriver;
+      if (run.status === "running") {
+        if (run.startedAt) {
+          const parsed = Date.parse(run.startedAt);
+          if (Number.isFinite(parsed)) runStartedAtMs = parsed;
+        }
+        if (runActivityEl.hidden) startActivity("CLI running");
+      }
+
+      run.steps.forEach((step) => {
+        const row = stepsEl.querySelector(`[data-step="${step.id}"]`);
+        if (!row) return;
+        row.className = `step ${step.status || "pending"}`;
+        const skill = row.querySelector("[data-skill]");
+        if (skill) {
+          const fallbackSkills = STEPS.find((x) => x.id === step.id)?.skills || [];
+          const list = step.requiredSkills?.length ? step.requiredSkills : fallbackSkills;
+          skill.textContent = `skills: ${list.join(", ")}`;
+        }
+        const hint = row.querySelector("[data-hint]");
+        if (hint) hint.textContent = step.hint || "";
+      });
+
+      setProgress(estimateProgress(run));
+      loopHint.hidden = run.currentStep !== 6 && run.currentStep !== 7;
+
+      if (run.lastFailure) {
+        failureCardEl.style.display = "block";
+        failureTextEl.textContent = run.lastFailure;
+      }
+      if (run.cdp) {
+        setCdpText([
+          `mode: ${run.cdp.mode || "-"}`,
+          `baseUrl: ${run.cdp.baseUrl || "-"}`,
+          `lastRound: ${run.cdp.lastRound || 0}`,
+          `status: ${run.cdp.lastStatus || "-"}`,
+          `passedRounds: ${run.cdp.passedRounds || 0}`,
+          `failedRounds: ${run.cdp.failedRounds || 0}`
+        ]);
+      }
+      setProjectPathText(run);
+
+      if (run.status === "completed") {
+        finishActivity("CLI completed");
+        setProgress(100);
+        logLine("运行完成，系统稳定。", "ok");
+        loadCompletedRuns();
+      }
+      if (run.status === "failed") {
+        finishActivity("CLI failed");
+        logLine(`运行失败: ${run.error || "unknown"}`, "err");
+      }
+      if (run.status === "stopped") {
+        finishActivity("CLI stopped");
+        logLine("运行已停止。", "warn");
+      }
+    }
+
+    function resetView() {
+      if (eventSource) {
+        eventSource.close();
+        eventSource = null;
+      }
+      currentRunId = null;
+      currentRunCdpDriver = "playwright";
+      latestRun = null;
+      runStartedAtMs = 0;
+      lastHeartbeatMs = 0;
+      idleAnnounced = false;
+      dotCount = 0;
+      stopActivityTicker();
+      runActivityEl.hidden = true;
+      runActivityEl.classList.remove("done", "stale");
+      runActivityLabelEl.dataset.base = "";
+      runActivityLabelEl.textContent = "CLI running...";
+      runActivityTimerEl.textContent = "00:00";
+      if (cdpDriverEl) cdpDriverEl.value = "playwright";
+      syncCdpHeadedForDriver();
+      if (cdpHeadedEl) cdpHeadedEl.checked = false;
+      if (cdpLingerMsEl) cdpLingerMsEl.value = "3000";
+      failureCardEl.style.display = "none";
+      failureTextEl.textContent = "";
+      if (failureBriefEl) {
+        failureBriefEl.style.display = "none";
+        failureBriefEl.textContent = "";
+      }
+      setCdpText(["等待运行..."]);
+      projectPathTextEl.textContent = "等待运行...";
+      loopHint.hidden = true;
+      logEl.innerHTML = "";
+      setProgress(0);
+      setStepTogglesDefault();
+      renderSteps();
+      btnRun.disabled = false;
+      btnStop.disabled = true;
+      if (btnOpenPlaywrightReport) btnOpenPlaywrightReport.disabled = true;
+      if (btnOpenPlaywrightZh) btnOpenPlaywrightZh.disabled = true;
+      logLine("视图已重置。", "t");
+    }
+
+    function attachEvents(runId) {
+      if (eventSource) eventSource.close();
+      eventSource = new EventSource(`/api/runs/${runId}/events`);
+
+      eventSource.addEventListener("ready", () => {
+        logLine(`SSE connected: ${runId}`, "run");
+      });
+
+      eventSource.addEventListener("run_started", (ev) => {
+        const data = JSON.parse(ev.data).payload;
+        currentRunCdpDriver = data.cdpDriver || "playwright";
+        logLine(`开始运行: model=${data.model}, cdpDriver=${data.cdpDriver || "playwright"}`, "run");
+        if (data.projectPath) {
+          const mode = data.useExistingWorkspace ? "mode: 已有目录增量" : "mode: 新建工作区";
+          const driverLine = data.cdpDriver ? `cdpDriver: ${data.cdpDriver}` : "";
+          const headedLine =
+            data.cdpHeaded != null
+              ? `cdpHeaded: ${data.cdpHeaded ? "true" : "false"}, cdpLingerMs: ${data.cdpLingerMs ?? "-"}`
+              : "";
+          const artLine = data.artifactDir ? `artifactDir: ${data.artifactDir}` : "";
+          projectPathTextEl.textContent = [`path: ${data.projectPath}`, `appPort: ${data.appPort || "-"}`, mode, driverLine, headedLine, artLine]
+            .filter(Boolean)
+            .join("\n");
+          logLine(
+            data.useExistingWorkspace ? `使用已有目录: ${data.projectPath}` : `独立目录: ${data.projectPath}`,
+            "ok"
+          );
+        }
+        startActivity("CLI running");
+      });
+
+      eventSource.addEventListener("step_status", (ev) => {
+        const evt = JSON.parse(ev.data);
+        const { stepId, status, hint, requiredSkills } = evt.payload;
+        applyStepStatusToLatestRun(evt.payload);
+        if (latestRun) setProgress(estimateProgress(latestRun));
+        const row = stepsEl.querySelector(`[data-step="${stepId}"]`);
+        if (row) {
+          row.className = `step ${status}`;
+          const skill = row.querySelector("[data-skill]");
+          if (skill && requiredSkills?.length) {
+            skill.textContent = `skills: ${requiredSkills.join(", ")}`;
+          }
+          const h = row.querySelector("[data-hint]");
+          if (h) h.textContent = hint || "";
+        }
+        if (status === "active") {
+          const title = STEPS.find((s) => s.id === stepId)?.title || `步骤${stepId}`;
+          if (stepId === 5) {
+            const mode =
+              currentRunCdpDriver === "cursor_mcp"
+                ? "Cursor MCP（chrome-devtools）"
+                : "Playwright CDP";
+            const hintText = hint ? ` · ${hint}` : "";
+            heartbeatActivity(`步骤5 正在执行 · ${mode}${hintText}`);
+          } else {
+            heartbeatActivity(`执行中: ${title}`);
+          }
+        }
+      });
+
+      eventSource.addEventListener("skills_contract_loaded", (ev) => {
+        const evt = JSON.parse(ev.data);
+        logLine(`skills契约已加载: strict=${evt.payload.strictMode}`, "ok");
+      });
+
+      eventSource.addEventListener("log", (ev) => {
+        const evt = JSON.parse(ev.data);
+        const level = evt.payload.level || "run";
+        const cls =
+          level === "error" || level === "err"
+            ? "err"
+            : level === "ok"
+              ? "ok"
+              : level === "warn"
+                ? "warn"
+                : "run";
+        logLine(evt.payload.message, cls);
+      });
+
+      eventSource.addEventListener("cli_heartbeat", (ev) => {
+        const evt = JSON.parse(ev.data);
+        const p = evt.payload || {};
+        const title = STEPS.find((s) => s.id === p.stepId)?.title || `步骤${p.stepId || "-"}`;
+        let label;
+        if (p.stepId === 5 && p.message) {
+          label = `步骤5 正在执行 · ${truncateUi(p.message, 180)}`;
+        } else if (p.message) {
+          label = `CLI running · ${title} · ${truncateUi(p.message, 120)}`;
+        } else {
+          label = `CLI running · ${title}`;
+        }
+        heartbeatActivity(label, p.elapsedMs);
+      });
+
+      eventSource.addEventListener("cli_chunk", (ev) => {
+        const evt = JSON.parse(ev.data);
+        const p = evt.payload || {};
+        const tag = p.stream === "stderr" ? "stderr" : "stdout";
+        logLine(`[${tag}] ${p.text || ""}`, p.stream === "stderr" ? "warn" : "run");
+      });
+
+      eventSource.addEventListener("cli_phase_done", (ev) => {
+        const evt = JSON.parse(ev.data);
+        const p = evt.payload || {};
+        if (p.message) logLine(p.message, "ok");
+      });
+
+      eventSource.addEventListener("test_failed", (ev) => {
+        const evt = JSON.parse(ev.data);
+        const p = evt.payload || {};
+        failureCardEl.style.display = "block";
+        const d = p.details || {};
+        const driver = p.driver || "playwright";
+        const brief = typeof p.brief === "string" ? p.brief.trim() : "";
+        if (failureBriefEl) {
+          if (brief) {
+            failureBriefEl.style.display = "block";
+            failureBriefEl.textContent = brief;
+          } else {
+            failureBriefEl.style.display = "none";
+            failureBriefEl.textContent = "";
+          }
+        }
+        const ms = p.mcpSummary;
+        const mcpLines =
+          driver === "cursor_mcp" && ms
+            ? [
+                `driver: ${driver}`,
+                `MCP 摘要(JSON): mode=${ms.mode ?? "-"} ok=${ms.ok ?? "-"} error=${truncateUi(String(ms.error || "-"), 200)} steps=${Array.isArray(ms.steps) ? ms.steps.join(",") : "-"}`,
+                ""
+              ]
+            : [`driver: ${driver}`, ""];
+        failureTextEl.textContent = [
+          `round: ${p.round}`,
+          ...mcpLines,
+          `test: ${d.testName || "-"}`,
+          `locator: ${d.locator || "-"}`,
+          `expected: ${d.expected || "-"}`,
+          `received: ${d.received || "-"}`,
+          "",
+          p.output || ""
+        ].join("\n");
+        logLine(
+          brief
+            ? `步骤5 第${p.round}轮失败 · ${brief}`
+            : `步骤5 第${p.round}轮失败 driver=${driver}`,
+          "err"
+        );
+      });
+
+      eventSource.addEventListener("structured_failure", (ev) => {
+        const evt = JSON.parse(ev.data);
+        const p = evt.payload || {};
+        const d = p.details || {};
+        if (p.driver === "cursor_mcp") {
+          const ms = p.mcpSummary;
+          const errHint = ms?.error ? truncateUi(String(ms.error), 160) : "";
+          logLine(
+            `结构化失败(MCP/chrome-devtools)：根因见步骤6 产物与 .autoflow/06_failure_analysis_round_*.md；非 Playwright locator 断言。${errHint ? ` JSON.error: ${errHint}` : ""}`,
+            "warn"
+          );
+        } else {
+          logLine(
+            `结构化失败(Playwright): locator=${d.locator || "-"} expected=${truncateUi(String(d.expected || "-"), 120)} received=${truncateUi(String(d.received || "-"), 120)}`,
+            "err"
+          );
+        }
+      });
+
+      eventSource.addEventListener("cdp_status", (ev) => {
+        const evt = JSON.parse(ev.data);
+        const s = evt.payload.summary || {};
+        const ui = s.ui || {};
+        setCdpText([
+          `mode: ${s.mode || "playwright-project-tests"}`,
+          `round: ${evt.payload.round}`,
+          `cdpUrl: ${s.cdpUrl || "-"}`,
+          `appUrl: ${s.appUrl || "-"}`,
+          `uiStatus: ${ui.statusCode || "-"}`,
+          `uiTitle: ${ui.title || "-"}`,
+          `ok: ${s.ok === true ? "true" : "false"}`
+        ]);
+        logLine(`CDP真测第${evt.payload.round}轮: ${s.ok === true ? "通过" : "失败"}`, s.ok === true ? "ok" : "err");
+      });
+
+      eventSource.addEventListener("loop_round", (ev) => {
+        const evt = JSON.parse(ev.data);
+        loopHint.hidden = false;
+        logLine(`循环轮次 ${evt.payload.round}: ${evt.payload.message}`, "warn");
+      });
+
+      eventSource.addEventListener("run_snapshot", (ev) => {
+        const evt = JSON.parse(ev.data);
+        applyRun(evt.payload);
+      });
+
+      eventSource.addEventListener("run_finished", () => {
+        finishActivity("CLI completed");
+        if (latestRun?.projectPath) {
+          logLine(
+            latestRun.useExistingWorkspace
+              ? `本次已在已有目录编辑: ${latestRun.projectPath}`
+              : `本次代码目录: ${latestRun.projectPath}`,
+            "ok"
+          );
+        }
+        loadCompletedRuns();
+        btnRun.disabled = false;
+        btnStop.disabled = true;
+      });
+
+      eventSource.addEventListener("run_failed", () => {
+        finishActivity("CLI failed");
+        btnRun.disabled = false;
+        btnStop.disabled = true;
+      });
+
+      eventSource.addEventListener("run_stopped", () => {
+        finishActivity("CLI stopped");
+        btnRun.disabled = false;
+        btnStop.disabled = true;
+      });
+
+      eventSource.onerror = () => {
+        if (!btnStop.disabled && !runActivityEl.hidden) {
+          runActivityEl.classList.add("stale");
+        }
+        logLine("SSE 连接中断，可刷新页面或重新发起运行。", "warn");
+      };
+    }
+
+    async function startRun() {
+      const requirement = reqEl.value.trim();
+      if (!requirement) {
+        alert("请先输入需求。");
+        return;
+      }
+
+      btnRun.disabled = true;
+      btnStop.disabled = false;
+      failureCardEl.style.display = "none";
+      failureTextEl.textContent = "";
+      if (failureBriefEl) {
+        failureBriefEl.style.display = "none";
+        failureBriefEl.textContent = "";
+      }
+      logEl.innerHTML = "";
+      setProgress(2);
+      renderSteps();
+      startActivity("初始化运行");
+
+      const enabledStepIds = getEnabledStepIdsFromUI();
+      const vmsg = validateEnabledStepIdsForClient(enabledStepIds);
+      if (vmsg) {
+        alert(vmsg);
+        finishActivity("校验失败");
+        btnRun.disabled = false;
+        btnStop.disabled = true;
+        return;
+      }
+
+      logLine(`本次启用步骤: [${enabledStepIds.join(", ")}]（将提交给 /api/runs）`, "run");
+      const linger = Math.min(60000, Math.max(0, Number.parseInt(String(cdpLingerMsEl.value || "3000"), 10) || 0));
+      const cdpDriver = cdpDriverEl ? cdpDriverEl.value : "playwright";
+      logLine(`CDP 驱动: ${cdpDriver}, 有头: ${cdpHeadedEl.checked}, cdpLingerMs: ${linger}`, "run");
+
+      const existingProjectPath = existingProjectPathEl.value.trim();
+      const body = {
+        requirement,
+        model: modelEl.value,
+        maxIterations: Number(maxIterationsEl.value || 3),
+        enabledStepIds,
+        cdpDriver,
+        cdpHeaded: cdpDriver === "cursor_mcp" ? false : Boolean(cdpHeadedEl.checked),
+        cdpLingerMs: linger,
+        ...(existingProjectPath ? { existingProjectPath } : {})
+      };
+
+      try {
+        const resp = await fetch("/api/runs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          throw new Error(data.error || "启动失败");
+        }
+        currentRunId = data.run.id;
+        applyRun(data.run);
+        logLine(`创建运行成功: ${currentRunId}`, "run");
+        if (btnOpenPlaywrightReport) btnOpenPlaywrightReport.disabled = false;
+        if (btnOpenPlaywrightZh) btnOpenPlaywrightZh.disabled = false;
+        attachEvents(currentRunId);
+      } catch (err) {
+        finishActivity("启动失败");
+        btnRun.disabled = false;
+        btnStop.disabled = true;
+        logLine(`启动失败: ${err.message}`, "err");
+      }
+    }
+
+    async function stopRun() {
+      if (!currentRunId) return;
+      try {
+        await fetch(`/api/runs/${currentRunId}/stop`, { method: "POST" });
+        logLine("已发送停止请求。", "warn");
+      } catch (err) {
+        logLine(`停止失败: ${err.message}`, "err");
+      }
+    }
+
+    async function copyReport() {
+      if (!currentRunId) {
+        alert("暂无运行记录可复制。");
+        return;
+      }
+      let report = "";
+      try {
+        const resp = await fetch(`/api/runs/${currentRunId}`);
+        const data = await resp.json().catch(() => ({}));
+        if (resp.ok && data.run) {
+          report = data.run.reportMarkdown || "";
+        } else if (!resp.ok) {
+          logLine(
+            `获取报告失败: ${data.error || resp.status}（若刚重启过可视化服务，内存中已无该 run，请重新跑一次）`,
+            "warn"
+          );
+        }
+      } catch (err) {
+        logLine(`拉取报告: ${err.message}`, "warn");
+      }
+      if (!report && latestRun?.id === currentRunId && latestRun.reportMarkdown) {
+        report = latestRun.reportMarkdown;
+        logLine("已使用当前会话缓存的报告（API 不可用或为空时）", "warn");
+      }
+      const text = report || "报告尚未生成，请等待运行结束。";
+      await copyTextToClipboard(text, "复盘报告已复制到剪贴板。");
+    }
+
+    async function openPlaywrightReport() {
+      if (!currentRunId) {
+        alert("暂无运行记录。");
+        return;
+      }
+      const url = `${window.location.origin}/api/runs/${currentRunId}/playwright-report/index.html`;
+      try {
+        const resp = await fetch(url, { method: "HEAD", credentials: "same-origin" });
+        if (resp.status === 404) {
+          alert("未找到测试报告（尚未生成 playwright-report、或服务已重启导致无该 run）。");
+          logLine("打开测试报告：404", "warn");
+          return;
+        }
+        if (!resp.ok) {
+          alert(`无法打开测试报告（HTTP ${resp.status}）。`);
+          return;
+        }
+        window.open(url, "_blank", "noopener,noreferrer");
+        logLine("已在新标签页打开 Playwright HTML 报告。", "ok");
+      } catch (err) {
+        alert(`打开失败：${err.message}`);
+        logLine(`打开测试报告失败: ${err.message}`, "err");
+      }
+    }
+
+    async function openPlaywrightZhSummary() {
+      if (!currentRunId) {
+        alert("暂无运行记录。");
+        return;
+      }
+      const url = `${window.location.origin}/api/runs/${currentRunId}/playwright-report/summary-zh.html`;
+      try {
+        const resp = await fetch(url, { method: "HEAD", credentials: "same-origin" });
+        if (resp.status === 404) {
+          alert("未找到中文摘要（需先跑测并生成 playwright-report/summary-zh.html）。");
+          logLine("打开中文摘要：404", "warn");
+          return;
+        }
+        if (!resp.ok) {
+          alert(`无法打开中文摘要（HTTP ${resp.status}）。`);
+          return;
+        }
+        window.open(url, "_blank", "noopener,noreferrer");
+        logLine("已在新标签页打开 Playwright 中文摘要。", "ok");
+      } catch (err) {
+        alert(`打开失败：${err.message}`);
+        logLine(`打开中文摘要失败: ${err.message}`, "err");
+      }
+    }
+
+    if (cdpDriverEl) {
+      cdpDriverEl.addEventListener("change", () => {
+        syncCdpHeadedForDriver();
+      });
+      syncCdpHeadedForDriver();
+    }
+
+    renderSteps();
+    setCdpText(["等待运行..."]);
+    btnStop.disabled = true;
+    btnRun.addEventListener("click", startRun);
+    btnStop.addEventListener("click", stopRun);
+    btnReset.addEventListener("click", resetView);
+    btnCopy.addEventListener("click", copyReport);
+    if (btnOpenPlaywrightReport) {
+      btnOpenPlaywrightReport.addEventListener("click", openPlaywrightReport);
+    }
+    if (btnOpenPlaywrightZh) {
+      btnOpenPlaywrightZh.addEventListener("click", openPlaywrightZhSummary);
+    }
+    btnRefreshCompleted.addEventListener("click", loadCompletedRuns);
+    btnStepAll.addEventListener("click", setStepTogglesDefault);
+    btnStepDefault.addEventListener("click", setStepTogglesDefault);
+    renderStepToggleRows();
+    loadCompletedRuns();
+  </script>
+</body>
+</html>
