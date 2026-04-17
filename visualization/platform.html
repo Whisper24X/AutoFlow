@@ -113,6 +113,32 @@
       font-family: inherit;
       font-size: 0.86rem;
     }
+    .field-label-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+    .field-label-row label {
+      margin: 0;
+    }
+    button.field-inline-refresh {
+      flex-shrink: 0;
+      padding: 5px 10px;
+      font-size: 0.72rem;
+      border-radius: 8px;
+    }
+    .visually-hidden {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
     .field input[type="checkbox"],
     .field input[type="radio"] {
       width: auto;
@@ -579,12 +605,16 @@
           <input id="cdpLingerMs" type="number" min="0" max="60000" value="3000" style="max-width: 140px" />
         </div>
         <div class="field">
-          <label for="existingProjectPath">已有项目目录（可选）</label>
-          <input
-            id="existingProjectPath"
-            type="text"
-            placeholder="留空新建；可填相对或绝对路径"
-          />
+          <div class="field-label-row">
+            <label for="existingProjectPath">已有项目目录（可选）</label>
+            <button type="button" class="ghost field-inline-refresh" id="btn-refresh-project-dirs" title="重新扫描 visualization/projects">
+              刷新列表
+            </button>
+          </div>
+          <select id="existingProjectPath" aria-describedby="existingProjectHint">
+            <option value="">新建项目（默认）</option>
+          </select>
+          <span id="existingProjectHint" class="visually-hidden">留空表示每次新建目录；否则复用所选目录。</span>
         </div>
         <div class="field step-toggles-field">
           <label>流水线步骤</label>
@@ -604,8 +634,6 @@
         <div class="btn-row">
           <button type="button" class="ghost" id="btn-reset">重置视图</button>
           <button type="button" class="ghost" id="btn-copy">复制复盘报告</button>
-          <button type="button" class="ghost" id="btn-open-playwright-report" disabled>打开测试报告</button>
-          <button type="button" class="ghost" id="btn-open-playwright-zh" disabled>打开中文摘要</button>
         </div>
       </aside>
 
@@ -649,7 +677,8 @@
       <p class="completed-note">
         来自各项目 <code>.autoflow/report.md</code>（<code>completed</code>）。「刷新列表」只重新读取报告。        可点「启动子项目」由本平台后台执行
         <code>npm run start</code>（<code>PORT</code> 与报告一致），日志写入该项目 <code>.autoflow/subproject-server.log</code>；「停止子项目」仅作用于由本平台拉起的进程。也可手动在目录执行
-        <code>PORT=&lt;端口&gt; npm start</code>，在运行该命令的终端按 Ctrl+C 结束。确认「应用状态」为在线后再打开链接。
+        <code>PORT=&lt;端口&gt; npm start</code>，在运行该命令的终端按 Ctrl+C 结束。确认「应用状态」为在线后再打开链接。每行「测试报告」「中文摘要」打开对应子项目下的
+        <code>playwright-report/</code>（需步骤 5 已生成）。
       </p>
       <div class="completed-toolbar">
         <button type="button" class="ghost" id="btn-refresh-completed">刷新列表</button>
@@ -695,10 +724,9 @@
     const btnStop = document.getElementById("btn-stop");
     const btnReset = document.getElementById("btn-reset");
     const btnCopy = document.getElementById("btn-copy");
-    const btnOpenPlaywrightReport = document.getElementById("btn-open-playwright-report");
-    const btnOpenPlaywrightZh = document.getElementById("btn-open-playwright-zh");
     const completedRunsBodyEl = document.getElementById("completedRunsBody");
     const btnRefreshCompleted = document.getElementById("btn-refresh-completed");
+    const btnRefreshProjectDirs = document.getElementById("btn-refresh-project-dirs");
     const stepToggleRowsEl = document.getElementById("stepToggleRows");
     const step5DepBannerEl = document.getElementById("step5DepBanner");
     const btnStepAll = document.getElementById("btn-step-all");
@@ -714,6 +742,60 @@
     let activityTicker = null;
     let idleAnnounced = false;
     let dotCount = 0;
+
+    const AF_LAST_RUN_ID = "af_lastRunId";
+    const AF_LAST_PROJECT_PATH = "af_lastPlaywrightProjectPath";
+
+    function persistPlaywrightSession() {
+      if (!currentRunId) return;
+      const pp = latestRun?.projectPath || latestRun?.workspacePath;
+      try {
+        sessionStorage.setItem(AF_LAST_RUN_ID, currentRunId);
+        if (pp) sessionStorage.setItem(AF_LAST_PROJECT_PATH, pp);
+      } catch {
+        /* ignore */
+      }
+    }
+
+    function loadPlaywrightProjectPathForReport() {
+      const pp = latestRun?.projectPath || latestRun?.workspacePath;
+      if (pp) return pp;
+      try {
+        return sessionStorage.getItem(AF_LAST_PROJECT_PATH);
+      } catch {
+        return null;
+      }
+    }
+
+    function loadCurrentRunIdForReport() {
+      if (currentRunId) return currentRunId;
+      try {
+        return sessionStorage.getItem(AF_LAST_RUN_ID);
+      } catch {
+        return null;
+      }
+    }
+
+    function clearPlaywrightSessionStorage() {
+      try {
+        sessionStorage.removeItem(AF_LAST_RUN_ID);
+        sessionStorage.removeItem(AF_LAST_PROJECT_PATH);
+      } catch {
+        /* ignore */
+      }
+    }
+
+    function restorePlaywrightSessionAfterLoad() {
+      try {
+        const rid = sessionStorage.getItem(AF_LAST_RUN_ID);
+        const pp = sessionStorage.getItem(AF_LAST_PROJECT_PATH);
+        if (rid && pp) {
+          currentRunId = rid;
+        }
+      } catch {
+        /* ignore */
+      }
+    }
 
     function formatDuration(ms) {
       const safe = Math.max(0, Math.floor(ms / 1000));
@@ -1016,6 +1098,26 @@
           );
           actTd.appendChild(bCopy);
         }
+        if (row.projectPath) {
+          const bReport = document.createElement("button");
+          bReport.type = "button";
+          bReport.className = "ghost sm";
+          bReport.textContent = "测试报告";
+          bReport.title = "打开 Playwright HTML 报告（playwright-report/index.html）";
+          bReport.addEventListener("click", () =>
+            openPlaywrightReport(row.id, row.projectPath)
+          );
+          actTd.appendChild(bReport);
+          const bZh = document.createElement("button");
+          bZh.type = "button";
+          bZh.className = "ghost sm";
+          bZh.textContent = "中文摘要";
+          bZh.title = "打开中文摘要页（playwright-report/summary-zh.html，若已配置）";
+          bZh.addEventListener("click", () =>
+            openPlaywrightZhSummary(row.id, row.projectPath)
+          );
+          actTd.appendChild(bZh);
+        }
         if (row.projectPath && pNum != null) {
           const bStart = document.createElement("button");
           bStart.type = "button";
@@ -1045,14 +1147,18 @@
           bStop.type = "button";
           bStop.className = "ghost sm";
           bStop.textContent = "停止子项目";
-          bStop.title = "结束由本平台启动的 npm 子进程（SIGTERM）";
+          bStop.title =
+            "结束子进程：优先本平台记录；无记录时按端口结束监听进程（适用于启动被跳过或可视化已重启）";
           bStop.addEventListener("click", async () => {
             bStop.disabled = true;
             try {
               const r = await fetch("/api/stop-subproject", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ projectPath: row.projectPath })
+                body: JSON.stringify({
+                  projectPath: row.projectPath,
+                  port: pNum
+                })
               });
               const data = await r.json().catch(() => ({}));
               if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
@@ -1089,6 +1195,31 @@
             })
         )
       );
+    }
+
+    async function loadProjectDirOptions() {
+      const prev = existingProjectPathEl.value;
+      try {
+        const resp = await fetch("/api/project-dirs");
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+        const dirs = Array.isArray(data.dirs) ? data.dirs : [];
+        existingProjectPathEl.innerHTML = "";
+        const opt0 = document.createElement("option");
+        opt0.value = "";
+        opt0.textContent = "新建项目（默认）";
+        existingProjectPathEl.appendChild(opt0);
+        for (const d of dirs) {
+          const opt = document.createElement("option");
+          opt.value = d.path || "";
+          opt.textContent = d.name || d.path || "";
+          existingProjectPathEl.appendChild(opt);
+        }
+        const still = [...existingProjectPathEl.options].some((o) => o.value === prev);
+        existingProjectPathEl.value = still ? prev : "";
+      } catch (err) {
+        logLine(`加载已有项目目录列表失败: ${err.message}`, "warn");
+      }
     }
 
     async function loadCompletedRuns() {
@@ -1225,6 +1356,10 @@
         finishActivity("CLI stopped");
         logLine("运行已停止。", "warn");
       }
+
+      if (currentRunId && (run.projectPath || run.workspacePath)) {
+        persistPlaywrightSession();
+      }
     }
 
     function resetView() {
@@ -1233,6 +1368,7 @@
         eventSource = null;
       }
       currentRunId = null;
+      clearPlaywrightSessionStorage();
       currentRunCdpDriver = "playwright";
       latestRun = null;
       runStartedAtMs = 0;
@@ -1264,8 +1400,6 @@
       renderSteps();
       btnRun.disabled = false;
       btnStop.disabled = true;
-      if (btnOpenPlaywrightReport) btnOpenPlaywrightReport.disabled = true;
-      if (btnOpenPlaywrightZh) btnOpenPlaywrightZh.disabled = true;
       logLine("视图已重置。", "t");
     }
 
@@ -1561,8 +1695,6 @@
         currentRunId = data.run.id;
         applyRun(data.run);
         logLine(`创建运行成功: ${currentRunId}`, "run");
-        if (btnOpenPlaywrightReport) btnOpenPlaywrightReport.disabled = false;
-        if (btnOpenPlaywrightZh) btnOpenPlaywrightZh.disabled = false;
         attachEvents(currentRunId);
       } catch (err) {
         finishActivity("启动失败");
@@ -1610,17 +1742,29 @@
       await copyTextToClipboard(text, "复盘报告已复制到剪贴板。");
     }
 
-    async function openPlaywrightReport() {
-      if (!currentRunId) {
-        alert("暂无运行记录。");
+    /**
+     * @param {string} [overrideRunId]
+     * @param {string} [overrideProjectPath] 已完成项目行传入，优先于会话
+     */
+    async function openPlaywrightReport(overrideRunId, overrideProjectPath) {
+      const rid = overrideRunId ?? loadCurrentRunIdForReport();
+      const pp = overrideProjectPath ?? loadPlaywrightProjectPathForReport();
+      if (!rid && !pp) {
+        alert("缺少项目路径。请从「已完成项目」表格点击，或先跑一轮流水线。");
         return;
       }
-      const url = `${window.location.origin}/api/runs/${currentRunId}/playwright-report/index.html`;
+      const runIdForUrl = rid || "0";
+      const qs = new URLSearchParams();
+      if (pp) qs.set("projectPath", pp);
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      const url = `${window.location.origin}/api/runs/${runIdForUrl}/playwright-report/index.html${suffix}`;
       try {
         const resp = await fetch(url, { method: "HEAD", credentials: "same-origin" });
         if (resp.status === 404) {
-          alert("未找到测试报告（尚未生成 playwright-report、或服务已重启导致无该 run）。");
-          logLine("打开测试报告：404", "warn");
+          alert(
+            "未找到 playwright-report/。请在子项目目录执行一次步骤5（或 npm test），并确认 playwright.config.js 含 html reporter（outputFolder: playwright-report）。若从未跑过测，需先跑测再打开。"
+          );
+          logLine("打开测试报告：404（目录不存在或未跑测）", "warn");
           return;
         }
         if (!resp.ok) {
@@ -1635,12 +1779,22 @@
       }
     }
 
-    async function openPlaywrightZhSummary() {
-      if (!currentRunId) {
-        alert("暂无运行记录。");
+    /**
+     * @param {string} [overrideRunId]
+     * @param {string} [overrideProjectPath]
+     */
+    async function openPlaywrightZhSummary(overrideRunId, overrideProjectPath) {
+      const rid = overrideRunId ?? loadCurrentRunIdForReport();
+      const pp = overrideProjectPath ?? loadPlaywrightProjectPathForReport();
+      if (!rid && !pp) {
+        alert("缺少项目路径。请从「已完成项目」表格点击，或先跑一轮流水线。");
         return;
       }
-      const url = `${window.location.origin}/api/runs/${currentRunId}/playwright-report/summary-zh.html`;
+      const runIdForUrl = rid || "0";
+      const qs = new URLSearchParams();
+      if (pp) qs.set("projectPath", pp);
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      const url = `${window.location.origin}/api/runs/${runIdForUrl}/playwright-report/summary-zh.html${suffix}`;
       try {
         const resp = await fetch(url, { method: "HEAD", credentials: "same-origin" });
         if (resp.status === 404) {
@@ -1674,16 +1828,16 @@
     btnStop.addEventListener("click", stopRun);
     btnReset.addEventListener("click", resetView);
     btnCopy.addEventListener("click", copyReport);
-    if (btnOpenPlaywrightReport) {
-      btnOpenPlaywrightReport.addEventListener("click", openPlaywrightReport);
-    }
-    if (btnOpenPlaywrightZh) {
-      btnOpenPlaywrightZh.addEventListener("click", openPlaywrightZhSummary);
-    }
+
+    restorePlaywrightSessionAfterLoad();
     btnRefreshCompleted.addEventListener("click", loadCompletedRuns);
+    if (btnRefreshProjectDirs) {
+      btnRefreshProjectDirs.addEventListener("click", () => loadProjectDirOptions());
+    }
     btnStepAll.addEventListener("click", setStepTogglesDefault);
     btnStepDefault.addEventListener("click", setStepTogglesDefault);
     renderStepToggleRows();
+    loadProjectDirOptions();
     loadCompletedRuns();
   </script>
 </body>

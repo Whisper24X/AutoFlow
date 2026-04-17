@@ -1,6 +1,6 @@
 const express = require("express");
 const http = require("http");
-const { spawn } = require("child_process");
+const { spawn, execFile } = require("child_process");
 const path = require("path");
 const fs = require("fs/promises");
 const fsSync = require("fs");
@@ -337,6 +337,40 @@ function mergeCompletedEntry(map, entry) {
   }
 }
 
+/**
+ * 列出 visualization/projects 下的子目录，供前端下拉选择「已有项目」。
+ * path 为相对仓库根目录，与 POST /api/runs 的 existingProjectPath 一致。
+ */
+async function listProjectDirsFromDisk() {
+  const projectsRoot = path.join(baseDir, "projects");
+  const out = [];
+  try {
+    const ents = await fs.readdir(projectsRoot, { withFileTypes: true });
+    for (const ent of ents) {
+      if (!ent.isDirectory() || ent.name.startsWith(".")) continue;
+      const full = path.join(projectsRoot, ent.name);
+      let st;
+      try {
+        st = await fs.stat(full);
+      } catch {
+        continue;
+      }
+      if (!st.isDirectory()) continue;
+      const rel = path.relative(repoRoot, full);
+      if (rel.startsWith("..") || path.isAbsolute(rel)) continue;
+      out.push({
+        name: ent.name,
+        path: rel.split(path.sep).join("/"),
+        mtimeMs: st.mtimeMs
+      });
+    }
+  } catch {
+    return [];
+  }
+  out.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  return out.map(({ name, path: p }) => ({ name, path: p }));
+}
+
 async function listCompletedRunsFromDisk() {
   const byKey = new Map();
 
@@ -456,6 +490,89 @@ function probeLocalHealth(port) {
       resolve(false);
     });
     req.setTimeout(2000);
+  });
+}
+
+/**
+ * 本机监听指定 TCP 端口的进程 PID（不含当前 Node 进程）。依赖 lsof（macOS/Linux）或 PowerShell（Windows）。
+ * @param {number} tcpPort
+ * @returns {Promise<number[]>}
+ */
+function pidsListeningOnPort(tcpPort) {
+  return new Promise((resolve) => {
+    const parsePids = (stdout) => {
+      const text = stdout.toString().trim();
+      if (!text) return [];
+      return [
+        ...new Set(
+          text
+            .split(/\r?\n/)
+            .map((s) => parseInt(s.trim(), 10))
+            .filter((n) => Number.isFinite(n) && n > 0 && n !== process.pid)
+        ),
+      ];
+    };
+
+    if (process.platform === "win32") {
+      execFile(
+        "powershell.exe",
+        [
+          "-NoProfile",
+          "-Command",
+          `Get-NetTCPConnection -LocalPort ${tcpPort} -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess | Sort-Object -Unique`,
+        ],
+        { windowsHide: true },
+        (err, stdout) => {
+          if (err) return resolve([]);
+          resolve(parsePids(stdout));
+        }
+      );
+      return;
+    }
+
+    execFile(
+      "lsof",
+      ["-t", `-iTCP:${tcpPort}`, "-sTCP:LISTEN"],
+      { windowsHide: true },
+      (err, stdout) => {
+        if (!err && stdout.toString().trim()) {
+          return resolve(parsePids(stdout));
+        }
+        execFile(
+          "lsof",
+          ["-ti", `:${tcpPort}`],
+          { windowsHide: true },
+          (err2, stdout2) => {
+            if (err2) return resolve([]);
+            resolve(parsePids(stdout2));
+          }
+        );
+      }
+    );
+  });
+}
+
+/**
+ * @param {number} pid
+ * @returns {Promise<void>}
+ */
+function killPidForStop(pid) {
+  return new Promise((resolve) => {
+    if (process.platform === "win32") {
+      execFile(
+        "taskkill",
+        ["/PID", String(pid), "/T", "/F"],
+        { windowsHide: true },
+        () => resolve()
+      );
+      return;
+    }
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch {
+      /* ignore */
+    }
+    resolve();
   });
 }
 
@@ -636,45 +753,85 @@ app.post("/api/start-subproject", async (req, res) => {
 });
 
 /**
- * 停止由本平台一键启动的子项目（向记录的 npm 子进程发 SIGTERM）。
- * POST /api/stop-subproject  body: { projectPath }
+ * 停止子项目：优先结束本平台记录的 spawn；若无记录则按端口结束监听进程（解决「启动被跳过 / 可视化重启后无记录」）。
+ * POST /api/stop-subproject  body: { projectPath, port? }
  */
 app.post("/api/stop-subproject", async (req, res) => {
   try {
     const rawPath = String(req.body?.projectPath || "").trim();
+    const portRaw = req.body?.port;
+    const portNum =
+      portRaw != null && portRaw !== ""
+        ? Number.parseInt(String(portRaw), 10)
+        : NaN;
+
     if (!rawPath) {
       res.status(400).json({ error: "缺少 projectPath" });
       return;
     }
     const absPath = await validateSubprojectDirForSpawn(path.resolve(rawPath));
+    const platformPort = Number.parseInt(String(port), 10);
+
     const entry = subProjectSpawnByPath.get(absPath);
-    if (!entry || !entry.child) {
-      res.status(404).json({
-        error:
-          "本平台没有正在运行的该子项目记录（可能未用「启动子项目」拉起、或已退出、或可视化服务已重启）。可在终端用 kill PID 或按端口结束进程。"
+    if (entry && entry.child && entry.child.exitCode === null) {
+      const { child, port: stoppedPort } = entry;
+      try {
+        child.kill("SIGTERM");
+      } catch (killErr) {
+        res.status(500).json({ error: killErr.message || String(killErr) });
+        return;
+      }
+      console.log(
+        `[AutoFlow] 已请求停止子项目（记录内）PID=${child.pid} PORT=${stoppedPort}`
+      );
+      res.json({
+        ok: true,
+        via: "tracked",
+        pid: child.pid,
+        port: stoppedPort,
+        message: `已向 PID ${child.pid} 发送 SIGTERM（本平台启动记录）。若端口仍被占用，可再点一次「停止」将按端口清理。`,
       });
       return;
     }
-    const { child, port: stoppedPort } = entry;
-    if (child.exitCode !== null) {
+
+    if (entry && entry.child && entry.child.exitCode !== null) {
       subProjectSpawnByPath.delete(absPath);
-      res.status(404).json({ error: "子进程已结束" });
+    }
+
+    if (Number.isFinite(portNum) && portNum >= 1 && portNum <= 65535) {
+      if (portNum === platformPort) {
+        res.status(400).json({ error: "不能结束可视化平台自身监听的端口" });
+        return;
+      }
+      const pids = await pidsListeningOnPort(portNum);
+      if (pids.length === 0) {
+        res.json({
+          ok: true,
+          skipped: true,
+          port: portNum,
+          message: `端口 ${portNum} 当前无监听进程（可能已结束）。`,
+        });
+        return;
+      }
+      for (const pid of pids) {
+        await killPidForStop(pid);
+      }
+      console.log(
+        `[AutoFlow] 已按端口停止子项目 PORT=${portNum} PIDs=${pids.join(",")}`
+      );
+      res.json({
+        ok: true,
+        via: "port",
+        port: portNum,
+        pids,
+        message: `已结束监听端口 ${portNum} 的进程 PID: ${pids.join(", ")}（无本平台启动记录时按端口回退）。`,
+      });
       return;
     }
-    try {
-      child.kill("SIGTERM");
-    } catch (killErr) {
-      res.status(500).json({ error: killErr.message || String(killErr) });
-      return;
-    }
-    console.log(
-      `[AutoFlow] 已请求停止子项目 PID=${child.pid} PORT=${stoppedPort}`
-    );
-    res.json({
-      ok: true,
-      pid: child.pid,
-      port: stoppedPort,
-      message: `已向 PID ${child.pid} 发送停止信号（SIGTERM）；若端口仍占用，请在终端执行 lsof -i :${stoppedPort} 后 kill 对应进程`
+
+    res.status(404).json({
+      error:
+        "本平台没有该子项目的运行记录，且请求未带有效 port。请从列表行点击「停止子项目」（会带上端口），或在终端用 lsof -i :端口 后 kill。",
     });
   } catch (err) {
     res.status(400).json({ error: err.message || String(err) });
@@ -760,6 +917,15 @@ app.delete("/api/orders/:id", (req, res) => {
 
 // 与 /api/runs/:id 无路径冲突；前端应优先使用本接口拉取历史已完成列表。
 app.get("/api/completed-runs", sendCompletedRunsList);
+
+app.get("/api/project-dirs", async (_req, res) => {
+  try {
+    const dirs = await listProjectDirsFromDisk();
+    res.json({ dirs });
+  } catch (err) {
+    res.status(500).json({ error: err.message || String(err) });
+  }
+});
 
 app.post("/api/runs", async (req, res) => {
   const requirement = String(req.body?.requirement || "").trim();
@@ -921,32 +1087,60 @@ app.post("/api/runs/:id/stop", (req, res) => {
 });
 
 /**
- * 托管当前内存 run 对应子项目下的 Playwright HTML 报告（playwright-report/），
- * 供平台页「打开测试报告」在新标签页查看。run 不在内存或服务重启后返回 404。
+ * 托管子项目下的 Playwright HTML 报告（playwright-report/）。
+ * - run 在内存内：使用 run.projectPath / workspacePath。
+ * - run 已不在内存（如可视化重启）：可带 ?projectPath= 经校验后的子项目绝对路径，仍可从磁盘打开。
  */
 app.use("/api/runs/:id/playwright-report", (req, res, next) => {
-  const run = runs.get(req.params.id);
-  if (!run) {
-    res.status(404).json({ error: "run 不存在" });
-    return;
-  }
-  const projectPath = run.projectPath || run.workspacePath;
-  const root = path.join(projectPath, "playwright-report");
-  let st;
-  try {
-    st = fsSync.statSync(root);
-  } catch {
-    res
-      .status(404)
-      .json({ error: "未找到 playwright-report，请先运行测试（步骤5）并启用 html reporter" });
-    return;
-  }
-  if (!st.isDirectory()) {
-    res.status(404).json({ error: "playwright-report 不是目录" });
-    return;
-  }
-  const opts = { index: "index.html", fallthrough: false };
-  express.static(root, opts)(req, res, next);
+  void (async () => {
+    try {
+      let projectPathResolved = null;
+      const run = runs.get(req.params.id);
+      if (run) {
+        projectPathResolved = run.projectPath || run.workspacePath;
+      } else {
+        const raw = String(req.query.projectPath || "").trim();
+        if (!raw) {
+          res.status(404).json({
+            error:
+              "run 不在内存（可能已重启可视化）。请从本页「打开测试报告」自动带上 projectPath，或手动在 URL 增加 ?projectPath=<子项目绝对路径>"
+          });
+          return;
+        }
+        projectPathResolved = await validateSubprojectDirForSpawn(path.resolve(raw));
+      }
+      if (!projectPathResolved) {
+        res.status(404).json({ error: "无项目路径" });
+        return;
+      }
+      const root = path.join(projectPathResolved, "playwright-report");
+      let st;
+      try {
+        st = fsSync.statSync(root);
+      } catch {
+        res
+          .status(404)
+          .json({
+            error: "未找到 playwright-report，请先运行测试（步骤5）并启用 html reporter"
+          });
+        return;
+      }
+      if (!st.isDirectory()) {
+        res.status(404).json({ error: "playwright-report 不是目录" });
+        return;
+      }
+      const pathOnly = (req.url || "/").split("?")[0] || "/";
+      req.url = pathOnly;
+      const opts = { index: "index.html", fallthrough: false };
+      express.static(root, opts)(req, res, next);
+    } catch (err) {
+      if (!res.headersSent) {
+        res.status(400).json({ error: err.message || String(err) });
+      } else {
+        next(err);
+      }
+    }
+  })();
 });
 
 app.get("/", (_req, res) => {
