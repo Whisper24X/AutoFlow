@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "test": "playwright test",
+    "test:smoke": "playwright test tests",
     "verify:cdp": "node scripts/verify-cdp.cjs"
   },
   "dependencies": {

@@ -1,0 +1,14 @@
+{
+  "name": "ops-admin-lab",
+  "private": true,
+  "description": "Multi-page admin app for stable Playwright testing loops",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "playwright test",
+    "test:headed": "playwright test --headed"
+  },
+  "dependencies": {
+    "@playwright/test": "^1.59.1",
+    "express": "^5.2.1"
+  }
+}

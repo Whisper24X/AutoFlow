@@ -15,11 +15,11 @@
       "skills": ["subagent-driven-development"]
     },
     "4": {
-      "name": "自动生成测试用例与策略",
+      "name": "自动生成测试用例与策略（Web/App）",
       "skills": ["webapp-testing"]
     },
     "5": {
-      "name": "执行UI+API测试",
+      "name": "执行UI+API测试（Web/App）",
       "skills": ["webapp-testing"]
     },
     "6": {

@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ops Admin Lab - Reviews</title>
+    <link rel="stylesheet" href="/assets/app.css" />
+  </head>
+  <body data-page="reviews">
+    <div class="layout">
+      <aside class="sidebar">
+        <div class="sidebar-brand">
+          <span class="sidebar-badge">Playwright Ready</span>
+          <h1>Ops Admin Lab</h1>
+        </div>
+        <nav class="sidebar-nav">
+          <span class="sidebar-section-label">Workspace</span>
+          <a class="nav-link" data-nav="dashboard" href="/">仪表盘</a>
+          <a class="nav-link" data-nav="users" href="/users.html">用户中心</a>
+          <a class="nav-link" data-nav="orders" href="/orders.html">订单中心</a>
+          <a class="nav-link" data-nav="reviews" href="/reviews.html">审核工作台</a>
+        </nav>
+        <div class="sidebar-footer">
+          <span class="sidebar-footer-label">Environment</span>
+          <strong>Local Mock Workspace</strong>
+        </div>
+      </aside>
+      <main class="content">
+        <div class="content-shell">
+        <div class="page-header">
+          <div>
+            <span class="page-eyebrow">Review Board</span>
+            <h2>审核工作台</h2>
+            <p>待审任务可跳转到订单详情或用户详情，形成第二层页面关系。</p>
+          </div>
+          <div class="page-actions">
+            <div class="page-badges">
+              <span class="soft-badge">Approve / reject</span>
+              <span class="soft-badge">Link traversal</span>
+            </div>
+          </div>
+        </div>
+        <div class="flash" data-testid="global-error"></div>
+        <section class="panel">
+          <h3>审核任务队列</h3>
+          <p class="panel-subtitle">统一处理订单与用户复核任务，并支持直接跳转到相关详情页。</p>
+          <div class="toolbar">
+            <select data-testid="review-status-filter">
+              <option value="all">全部状态</option>
+              <option value="pending">pending</option>
+              <option value="approved">approved</option>
+              <option value="rejected">rejected</option>
+            </select>
+            <button data-testid="apply-review-filters">应用筛选</button>
+          </div>
+          <div class="table-shell">
+            <table>
+              <thead>
+                <tr>
+                  <th>任务</th>
+                  <th>类型</th>
+                  <th>关联用户</th>
+                  <th>优先级</th>
+                  <th>状态</th>
+                  <th>目标</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody data-testid="reviews-table-body"></tbody>
+            </table>
+          </div>
+          <div class="flash" data-testid="reviews-flash"></div>
+        </section>
+        </div>
+      </main>
+    </div>
+    <script src="/assets/app.js"></script>
+  </body>
+  </html>

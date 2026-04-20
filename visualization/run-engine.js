@@ -2,7 +2,7 @@ const fs = require("fs/promises");
 const path = require("path");
 const net = require("net");
 const http = require("http");
-const { spawn, spawnSync } = require("child_process");
+const { spawn, spawnSync, execFile } = require("child_process");
 const { runCompose, createAbortError } = require("./cursor-cli-adapter");
 
 const CDP_APP_HOST = "127.0.0.1";
@@ -14,6 +14,57 @@ function normalizeCdpDriver(raw) {
     .replace(/-/g, "_");
   if (s === "cursor_mcp") return "cursor_mcp";
   return "playwright";
+}
+
+function normalizeTargetPlatform(raw) {
+  const s = String(raw || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\+/g, "_")
+    .replace(/-/g, "_");
+  if (s === "app" || s === "mobile") return "app";
+  if (s === "web_app" || s === "app_web") return "web_app";
+  return "web";
+}
+
+function normalizeAppStack(raw) {
+  const s = String(raw || "").trim().toLowerCase();
+  if (s === "expo" || s === "react_native_expo") return "expo";
+  return "expo";
+}
+
+function normalizeAppTestMode(raw) {
+  const s = String(raw || "")
+    .trim()
+    .toLowerCase()
+    .replace(/-/g, "_");
+  if (s === "jest") return "jest";
+  if (s === "detox") return "detox";
+  return "both";
+}
+
+function isMemoRequirement(requirement) {
+  const text = String(requirement || "").toLowerCase();
+  return /备忘录|memo|todo|待办/.test(text);
+}
+
+function buildPlatformDefaultConstraintBlock(run) {
+  const target = normalizeTargetPlatform(run?.targetPlatform);
+  const lines = [
+    "## 平台级默认约束（自动注入）",
+    "- 禁止仅交付占位页（例如只有 `Generated Requirement Project` 与 `/api/health` 文案）。",
+    "- Web 端必须提供至少 1 条可操作主链路，而非静态展示。",
+    "- 测试策略不得仅包含 smoke/health，必须覆盖业务交互断言。"
+  ];
+  if (target === "web_app") {
+    lines.push("- 选择 `web_app` 时，Web 与 App 需对齐核心业务能力，不能只完成其中一端。");
+  }
+  if (isMemoRequirement(run?.requirement)) {
+    lines.push("- 识别为“备忘录/Todo”需求时，默认验收基线包含：新增、编辑、删除、完成状态切换、持久化恢复。");
+    lines.push("- 持久化默认约束：Web 使用 localStorage，App 使用 AsyncStorage，两端数据模型字段应一致。");
+    lines.push("- 测试必须包含至少 1 条“刷新/重启后数据仍在”的用例，禁止只验证标题或空页面。");
+  }
+  return `${lines.join("\n")}\n`;
 }
 
 function waitPort(host, port, timeoutMs = 30000) {
@@ -149,6 +200,106 @@ function httpGetJson(url, timeoutMs = 5000) {
   });
 }
 
+function hasPlaywrightPortConflict(outputText) {
+  const text = String(outputText || "").toLowerCase();
+  return text.includes("is already used") && text.includes("/api/health");
+}
+
+function execFileSafe(bin, args, timeoutMs = 8000) {
+  return new Promise((resolve) => {
+    execFile(
+      bin,
+      args,
+      { timeout: timeoutMs, windowsHide: true, maxBuffer: 1024 * 1024 },
+      (err, stdout, stderr) => {
+        resolve({
+          ok: !err,
+          stdout: String(stdout || ""),
+          stderr: String(stderr || ""),
+          error: err ? err.message || String(err) : ""
+        });
+      }
+    );
+  });
+}
+
+async function listListeningPidsOnPort(port) {
+  if (process.platform === "win32") return [];
+  const out = await execFileSafe("lsof", ["-t", `-iTCP:${port}`, "-sTCP:LISTEN"], 5000);
+  if (!out.ok && !String(out.error).toLowerCase().includes("no such")) return [];
+  return [
+    ...new Set(
+      String(out.stdout || "")
+        .split(/\r?\n/)
+        .map((s) => Number.parseInt(s.trim(), 10))
+        .filter((n) => Number.isFinite(n) && n > 0 && n !== process.pid)
+    )
+  ];
+}
+
+async function forceFreePortForExclusiveWebRun(port) {
+  const before = await listListeningPidsOnPort(port);
+  if (!before.length) return { killed: [], stillBusy: false };
+  for (const pid of before) {
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch {
+      /* ignore */
+    }
+  }
+  await sleep(700);
+  const after = await listListeningPidsOnPort(port);
+  return { killed: before, stillBusy: after.length > 0, alive: after };
+}
+
+async function resolveWorkspaceDevServerLauncher(workspacePath, { preferWeb = false } = {}) {
+  const npmBin = process.platform === "win32" ? "npm.cmd" : "npm";
+  const nodeBin = process.execPath;
+  const fallback = {
+    bin: npmBin,
+    args: ["start"],
+    label: "npm start",
+    env: {}
+  };
+  try {
+    const packageJsonPath = path.join(workspacePath, "package.json");
+    const rawPkg = await fs.readFile(packageJsonPath, "utf-8");
+    const parsedPkg = JSON.parse(rawPkg);
+    const scripts = parsedPkg?.scripts || {};
+    const startScript = String(scripts.start || "").trim();
+    const hasNodeWebServer = await pathExists(path.join(workspacePath, "src", "server.js"));
+
+    if (preferWeb && typeof scripts["start:web"] === "string" && scripts["start:web"].trim()) {
+      return {
+        bin: npmBin,
+        args: ["run", "start:web"],
+        label: "npm run start:web",
+        env: {}
+      };
+    }
+    if (preferWeb && hasNodeWebServer && /(?:^|\s)(?:npx\s+)?expo\s+start(?:\s|$)/i.test(startScript)) {
+      return {
+        bin: nodeBin,
+        args: [path.join("src", "server.js")],
+        label: "node src/server.js",
+        env: {}
+      };
+    }
+    if (/(?:^|\s)(?:npx\s+)?expo\s+start(?:\s|$)/i.test(startScript)) {
+      return {
+        ...fallback,
+        env: {
+          CI: "1",
+          EXPO_NO_DOCTOR: "1"
+        }
+      };
+    }
+  } catch {
+    return fallback;
+  }
+  return fallback;
+}
+
 /**
  * 启动 workspace 内 npm start（PORT），就绪后执行 fn，结束时 SIGTERM 子进程。
  */
@@ -182,10 +333,38 @@ function runCursorAgentMcpListSync(workspacePath, timeoutMs = 12000) {
   }
 }
 
-async function withWorkspaceDevServer({ workspacePath, port, signal }, fn) {
-  const child = spawn("npm", ["start"], {
+function runCursorAgentMcpListToolsSync(workspacePath, serverName, timeoutMs = 20000) {
+  try {
+    const r = spawnSync("cursor", ["agent", "mcp", "list-tools", serverName], {
+      cwd: workspacePath,
+      env: process.env,
+      encoding: "utf-8",
+      timeout: timeoutMs,
+      maxBuffer: 2 * 1024 * 1024
+    });
+    return {
+      ok: !r.error,
+      status: r.status,
+      stdout: String(r.stdout || ""),
+      stderr: String(r.stderr || ""),
+      err: r.error ? r.error.message : ""
+    };
+  } catch (e) {
+    return {
+      ok: false,
+      status: null,
+      stdout: "",
+      stderr: "",
+      err: e.message || String(e)
+    };
+  }
+}
+
+async function withWorkspaceDevServer({ workspacePath, port, signal, launcher }, fn) {
+  const resolvedLauncher = launcher || (await resolveWorkspaceDevServerLauncher(workspacePath));
+  const child = spawn(resolvedLauncher.bin, resolvedLauncher.args, {
     cwd: workspacePath,
-    env: { ...process.env, PORT: String(port) },
+    env: { ...process.env, ...resolvedLauncher.env, PORT: String(port) },
     stdio: "pipe"
   });
   let cleaned = false;
@@ -214,7 +393,8 @@ function buildCursorMcpCdpPrompt({
   appPort,
   testPlanExcerpt = "",
   specFileList = [],
-  specSnippets = ""
+  specSnippets = "",
+  mcpPreflight = null
 }) {
   const planBlock =
     testPlanExcerpt && String(testPlanExcerpt).trim().length > 0
@@ -250,11 +430,22 @@ function buildCursorMcpCdpPrompt({
         ].join("\n")
       : "";
 
+  const preflightBlock =
+    mcpPreflight && String(mcpPreflight).trim().length > 0
+      ? [
+          "",
+          "## MCP 预检结果（平台采样）",
+          String(mcpPreflight),
+          ""
+        ].join("\n")
+      : "";
+
   return [
     "步骤5（Cursor MCP 浏览器真测）",
     planBlock,
     specPathsBlock,
     specSnippetBlock,
+    preflightBlock,
     "",
     `应用已在本机启动，请在浏览器中打开并验证：${appUrl}`,
     "",
@@ -265,6 +456,9 @@ function buildCursorMcpCdpPrompt({
     "",
     "重要（MCP 专用口径，禁止替代验收）：",
     "4）若当前 cursor agent 会话中**看不到**任何可调用的「浏览器 / Chrome DevTools」类 MCP 工具，则**禁止**使用 Playwright、puppeteer、curl、wget、node fetch、手写 HTTP 等非 MCP 手段做页面或接口的「替代验收」或补充证明。",
+    "4.1）判定“是否有浏览器 MCP”时，不要以 list_mcp_resources 是否为空作为依据；必须以工具可调用性为准。",
+    "4.2）必须先尝试实际调用至少一个浏览器 MCP 工具（如 `list_pages`/`new_page`/`navigate_page`），仅当调用返回“unknown tool / server unavailable / permission denied”等明确错误，才允许走 MCP_UNAVAILABLE 分支。",
+    "4.3）若上面的「MCP 预检结果」已显示浏览器 MCP server 为 ready 且有 tools，则默认视为可用；此时输出 MCP_UNAVAILABLE 将被视为不合规。",
     "5）在上述「无 MCP 工具」情况下：只输出下方 JSON，且 ok **必须**为 false；mode 仍为 \"cursor-mcp-ui-check\"；ui 可写 { statusCode: 0, title: \"\" }；api 可写 { statusCode: 0, body: \"\" }；steps 建议为 [\"mcp-missing\"]。",
     "6）error 字段须以 **MCP_UNAVAILABLE** 开头，并简要说明原因；error 内请包含两行用户可复制的自检命令：`cursor agent mcp list` 与 `cursor agent mcp list-tools <你的浏览器MCP服务器名>`。",
     "",
@@ -462,6 +656,41 @@ function extractPlaywrightFailureOneLiner(rawText) {
   return "";
 }
 
+function parseMobileFailureDetails(rawText) {
+  const text = stripAnsi(rawText || "");
+  const failureType =
+    text.match(/(Jest|Detox|Expo)\s+(?:test|run)\s+failed/i)?.[1] ||
+    (text.match(/detox/i) ? "Detox" : text.match(/jest/i) ? "Jest" : "Mobile");
+  const errorLine =
+    text.match(/(?:FAIL|Error|UnhandledPromiseRejection|AssertionError)[:\s]+([^\n]+)/i)?.[1] ||
+    "";
+  const fileLine =
+    text.match(/(?:at|in)\s+([^\s]+\.(?:test|spec)\.[jt]sx?)/i)?.[1] ||
+    text.match(/(__tests__\/[^\s]+)/i)?.[1] ||
+    "";
+  return {
+    testName: fileLine,
+    locator: "",
+    expected: "",
+    received: "",
+    failureType,
+    errorLine: truncate(errorLine.trim(), 280)
+  };
+}
+
+function extractMobileFailureOneLiner(rawText) {
+  const text = stripAnsi(rawText || "");
+  const line =
+    text.match(/(?:FAIL|Error|AssertionError)[:\s]+([^\n]+)/i)?.[1] ||
+    text.match(/Detox(?:Error)?:\s*([^\n]+)/i)?.[1] ||
+    text.match(/Jest(?: failed)?:\s*([^\n]+)/i)?.[1] ||
+    "";
+  if (line) return truncate(line.trim(), 220);
+  if (/detox/i.test(text)) return "Detox 运行失败";
+  if (/jest/i.test(text)) return "Jest 运行失败";
+  return "";
+}
+
 /**
  * 从步骤6 compose 输出中抽取「根因」简短说明（供日志一行展示）
  */
@@ -521,6 +750,22 @@ async function ensureExistingWorkspaceDirs(workspacePath) {
   await fs.mkdir(path.join(workspacePath, "public"), { recursive: true });
   await fs.mkdir(path.join(workspacePath, "src"), { recursive: true });
   await fs.mkdir(path.join(workspacePath, "tests"), { recursive: true });
+}
+
+async function copyDirIfMissing(srcDir, dstDir) {
+  if (!(await pathExists(srcDir))) return;
+  await fs.mkdir(dstDir, { recursive: true });
+  const entries = await fs.readdir(srcDir, { withFileTypes: true });
+  for (const ent of entries) {
+    const src = path.join(srcDir, ent.name);
+    const dst = path.join(dstDir, ent.name);
+    // eslint-disable-next-line no-await-in-loop
+    if (ent.isDirectory()) await copyDirIfMissing(src, dst);
+    else if (!(await pathExists(dst))) {
+      // eslint-disable-next-line no-await-in-loop
+      await fs.copyFile(src, dst);
+    }
+  }
 }
 
 /** 与 Chrome DevTools MCP 官方文档一致的默认项（含 env，便于 Cursor 识别）。 */
@@ -721,6 +966,42 @@ async function ensureProjectSkeleton(workspacePath, appPort) {
   await ensureWorkspaceChromeDevtoolsMcpTemplate(workspacePath);
 }
 
+async function ensureExpoProjectSkeleton(workspacePath, appPort, baseDir) {
+  await fs.mkdir(workspacePath, { recursive: true });
+  const templateDir = path.join(baseDir, "templates", "mobile-expo");
+  await copyDirIfMissing(templateDir, workspacePath);
+  const packageJsonPath = path.join(workspacePath, "package.json");
+  const readmePath = path.join(workspacePath, "README.md");
+  if (!(await pathExists(packageJsonPath))) {
+    const pkg = {
+      name: "generated-expo-app",
+      private: true,
+      version: "0.0.1",
+      scripts: {
+        start: "npx expo start",
+        "test:app": "npm run test:app:jest && npm run test:app:detox",
+        "test:app:jest": "node ./scripts/mobile-jest-placeholder.cjs",
+        "test:app:detox": "node ./scripts/mobile-detox-placeholder.cjs"
+      }
+    };
+    await fs.writeFile(packageJsonPath, `${JSON.stringify(pkg, null, 2)}\n`, "utf-8");
+  }
+  if (!(await pathExists(readmePath))) {
+    await fs.writeFile(
+      readmePath,
+      [
+        "# Generated Expo App",
+        "",
+        `- Workspace: ${workspacePath}`,
+        `- Default App Port: ${appPort}`,
+        "- Scripts: `npm run test:app:jest`, `npm run test:app:detox`, `npm run test:app`"
+      ].join("\n"),
+      "utf-8"
+    );
+  }
+  await ensureWorkspaceChromeDevtoolsMcpTemplate(workspacePath);
+}
+
 function buildReport(run) {
   const lines = [];
   lines.push(`# 运行报告 ${run.id}`);
@@ -731,6 +1012,9 @@ function buildReport(run) {
   lines.push(`- 项目目录: ${run.projectPath || run.workspacePath}`);
   lines.push(`- 证据目录: ${run.runDir || "-"}`);
   lines.push(`- 使用已有项目目录: ${run.useExistingWorkspace ? "是" : "否"}`);
+  lines.push(`- 目标平台: ${run.targetPlatform || "web"}`);
+  lines.push(`- App 技术栈: ${run.appStack || "expo"}`);
+  lines.push(`- App 测试模式: ${run.appTestMode || "both"}`);
   lines.push(`- 应用端口: ${run.appPort || "-"}`);
   lines.push(`- 最大迭代: ${run.maxIterations}`);
   lines.push(`- 实际迭代: ${run.iterations}`);
@@ -750,6 +1034,7 @@ function buildReport(run) {
   );
   lines.push(`- 测试目录: ${run.testsPath || "-"}`);
   lines.push(`- smoke模板: ${run.smokeTestPath || "-"}`);
+  lines.push(`- 移动测试命令: ${(run.mobile?.commands || []).join(" | ") || "-"}`);
   lines.push("");
   lines.push("## Playwright 可视化报告");
   {
@@ -786,6 +1071,12 @@ function buildReport(run) {
   lines.push("");
   lines.push("## 失败摘要");
   lines.push(run.lastFailure || "无");
+  lines.push("");
+  lines.push("## 移动端测试结果");
+  lines.push(`- 最后状态: ${run.mobile?.lastStatus || "-"}`);
+  lines.push(`- 最后轮次: ${run.mobile?.lastRound || 0}`);
+  lines.push(`- 降级策略触发: ${run.mobile?.degradedDetox ? "是（Detox 环境不足）" : "否"}`);
+  lines.push(`- 产物目录: ${run.runDir || "-"}`);
   return lines.join("\n");
 }
 
@@ -883,6 +1174,10 @@ async function startRun({
   async function runComposeStep(stepId, stepName, promptBody, timeoutMs, phase = "compose") {
     const step = run.steps.find((s) => s.id === stepId);
     const requiredSkills = step?.requiredSkills || [];
+    const isMcpUiPhase =
+      typeof phase === "string" && phase.startsWith("cdp_mcp_round");
+    // MCP 浏览器验页阶段以步骤5硬约束为唯一准绳，避免被通用 webapp-testing skill 误导到 Playwright 口径。
+    const effectiveRequiredSkills = isMcpUiPhase ? [] : requiredSkills;
     const approveMcps =
       typeof phase === "string" && phase.startsWith("cdp_mcp_round");
     const chunkMs =
@@ -903,7 +1198,7 @@ async function startRun({
           timeoutMs,
           signal: controller.signal,
           approveMcps,
-          requiredSkills,
+          requiredSkills: effectiveRequiredSkills,
           onStdoutChunk: (text) => emitChunk("stdout", text),
           onStderrChunk: (text) => emitChunk("stderr", text)
         })
@@ -918,10 +1213,20 @@ async function startRun({
   }
 
   try {
+    const isMobileTarget =
+      run.targetPlatform === "app" || run.targetPlatform === "web_app";
+    const isWebTarget =
+      run.targetPlatform === "web" || run.targetPlatform === "web_app";
+    const platformDefaultConstraintBlock = buildPlatformDefaultConstraintBlock(run);
     if (run.useExistingWorkspace) {
       await ensureExistingWorkspaceDirs(run.workspacePath);
     } else {
-      await ensureProjectSkeleton(run.workspacePath, run.appPort || 4173);
+      if (run.targetPlatform === "app" || run.targetPlatform === "web_app") {
+        await ensureExpoProjectSkeleton(run.workspacePath, run.appPort || 4173, baseDir);
+      }
+      if (run.targetPlatform === "web" || run.targetPlatform === "web_app") {
+        await ensureProjectSkeleton(run.workspacePath, run.appPort || 4173);
+      }
     }
     run.projectPath = run.projectPath || run.workspacePath;
     run.testsPath = path.join(run.projectPath, "tests");
@@ -933,6 +1238,13 @@ async function startRun({
       step.requiredSkills = cfg.skills;
       step.updatedAt = now();
     });
+    if (isWebTarget && normalizeCdpDriver(run.cdpDriver) === "cursor_mcp") {
+      const step5 = run.steps.find((s) => s.id === 5);
+      if (step5 && Array.isArray(step5.requiredSkills)) {
+        // Cursor MCP 验页路径下，不注入 webapp-testing skill，避免被 Playwright 语义干扰。
+        step5.requiredSkills = step5.requiredSkills.filter((s) => s !== "webapp-testing");
+      }
+    }
 
     run.status = "running";
     run.startedAt = now();
@@ -948,6 +1260,9 @@ async function startRun({
       cdpHeaded: Boolean(run.cdpHeaded),
       cdpLingerMs: run.cdpLingerMs,
       cdpDriver: run.cdpDriver || "playwright",
+      targetPlatform: run.targetPlatform || "web",
+      appStack: run.appStack || "expo",
+      appTestMode: run.appTestMode || "both",
       artifactDir: run.runDir,
       at: run.startedAt
     });
@@ -980,6 +1295,7 @@ async function startRun({
       [
         "请基于以下需求输出系统架构拆解：模块、数据流、接口、风险。",
         "要求输出 markdown，小白可读。",
+        platformDefaultConstraintBlock,
         incrementalWorkspacePromptNote(run),
         run.requirement
       ].join("\n"),
@@ -1010,7 +1326,9 @@ async function startRun({
       [
         "你需要扮演多Agent协作（规划/实现/审查）完成开发。",
         "优先最小改动；必要时可写代码。",
+        "不要停留在骨架页/占位页，必须交付可交互功能与可验证行为。",
         "输出：你做了什么、改了哪些文件、待验证项。",
+        platformDefaultConstraintBlock,
         incrementalWorkspacePromptNote(run),
         `需求:\n${run.requirement}`
       ].join("\n"),
@@ -1061,6 +1379,11 @@ async function startRun({
           "3）文档中必须包含：**任务→用例矩阵**（覆盖步骤2主要任务；若无步骤2则说明退化策略）。",
           "4）必须提供 Playwright + CDP 交叉校验思路（如 Runtime.evaluate 与 DOM 断言一致），并与 `tests/*.spec.js` 对齐。",
           "5）给出与步骤5一致的本地命令（端口由平台注入，文档中可用占位说明）：`BASE_URL=http://127.0.0.1:<端口> PORT=<端口> npx playwright test tests`（可选 `CI=1` 强制每次新启 webServer）。",
+          "6）禁止只生成 smoke/health 通过型用例；至少包含业务交互断言（如 CRUD、状态流转、持久化恢复）。",
+          isMobileTarget
+            ? "7）若目标平台包含 app：补充 Expo 移动端测试矩阵（Jest/Detox），并给出 `npm run test:app:jest` 与 `npm run test:app:detox` 的执行前提、失败判定与回归路径。"
+            : "",
+          platformDefaultConstraintBlock,
           incrementalWorkspacePromptNote(run),
           archBlock,
           `需求:\n${run.requirement}`
@@ -1099,37 +1422,80 @@ async function startRun({
 
     const appPort = Number(run.appPort || 4173);
     const appUrl = `http://${CDP_APP_HOST}:${appPort}`;
-    const useMcpCdp = normalizeCdpDriver(run.cdpDriver) === "cursor_mcp";
+    const useMcpCdp = isWebTarget && normalizeCdpDriver(run.cdpDriver) === "cursor_mcp";
     const headedPlaywright =
-      !useMcpCdp && run.cdpHeaded ? " --headed" : "";
-    /** 与子项目一致：只跑 tests/ 下用例，等价于在该目录执行 npx playwright test tests */
+      isWebTarget && !useMcpCdp && run.cdpHeaded ? " --headed" : "";
     const testCommand = useMcpCdp
       ? `cursor agent (MCP UI check) workspace=${run.workspacePath} appUrl=${appUrl}`
       : `npx playwright test tests${headedPlaywright}`;
-    const playwrightStep5Env = !useMcpCdp
-      ? { BASE_URL: appUrl, PORT: String(appPort) }
-      : null;
+    async function buildPlaywrightStep5Env(round) {
+      const env = {
+        BASE_URL: appUrl,
+        PORT: String(appPort),
+        PLAYWRIGHT_PORT: String(appPort),
+        CI: "1",
+        PLAYWRIGHT_REUSE_SERVER: "0"
+      };
+      const exclusive = await forceFreePortForExclusiveWebRun(appPort);
+      if (exclusive.killed.length) {
+        emitLog(
+          `步骤5 第 ${round} 轮：独占启动前已停止端口 ${appPort} 上进程 PID=${exclusive.killed.join(",")}`,
+          exclusive.stillBusy ? "warn" : "run"
+        );
+      }
+      if (exclusive.stillBusy) {
+        env.PLAYWRIGHT_REUSE_SERVER = "1";
+        emitLog(
+          `步骤5 第 ${round} 轮：端口 ${appPort} 仍被占用（PID=${(exclusive.alive || []).join(",") || "-"})，回退启用 PLAYWRIGHT_REUSE_SERVER=1`,
+          "warn"
+        );
+        return env;
+      }
+      try {
+        const health = await httpGetJson(`${appUrl}/api/health`, 1800);
+        if (Number(health.statusCode) > 0) {
+          env.PLAYWRIGHT_REUSE_SERVER = "1";
+          emitLog(
+            `步骤5 第 ${round} 轮：端口 ${appPort} 已有服务响应(/api/health=${health.statusCode})，启用 PLAYWRIGHT_REUSE_SERVER=1 以避免端口冲突`,
+            "warn"
+          );
+        }
+      } catch {
+        /* 端口未就绪时按独占模式启动，避免误连旧服务 */
+      }
+      return env;
+    }
     const step4TestPlanExcerpt = await readArtifactStripped(
       run.runDir,
       "04_test_strategy.md"
     );
-    const testsDirSpecs = await listPlaywrightSpecFiles(run.workspacePath);
+    const testsDirSpecs = isWebTarget ? await listPlaywrightSpecFiles(run.workspacePath) : [];
     run.cdp = {
-      mode: useMcpCdp ? "cursor-mcp-ui-check" : "playwright-project-tests",
-      driver: useMcpCdp ? "cursor_mcp" : "playwright",
-      baseUrl: appUrl,
+      mode: isWebTarget
+        ? (useMcpCdp ? "cursor-mcp-ui-check" : "playwright-project-tests")
+        : "mobile-app-tests",
+      driver: isWebTarget ? (useMcpCdp ? "cursor_mcp" : "playwright") : "expo",
+      baseUrl: isWebTarget ? appUrl : "-",
       testsDirSpecFiles: testsDirSpecs,
       lastRound: 0,
       lastStatus: "pending",
       passedRounds: 0,
       failedRounds: 0
     };
-    if (useMcpCdp) {
+    run.mobile = {
+      stack: run.appStack || "expo",
+      mode: run.appTestMode || "both",
+      commands: [],
+      lastRound: 0,
+      lastStatus: "pending",
+      degradedDetox: false
+    };
+    if (isWebTarget && useMcpCdp) {
       emitLog(
         `步骤5启用 Cursor MCP 浏览器验页（cursor agent）；有头/停留由本机浏览器与 MCP 决定，与「CDP 有头」开关无关。appUrl=${appUrl}`,
         "run"
       );
-    } else {
+    } else if (isWebTarget) {
       emitLog(
         `步骤5启用 Playwright：工作区 ${run.workspacePath}，执行命令 \`${testCommand}\`（环境 BASE_URL=${appUrl} PORT=${appPort}）。已发现 tests/ 用例文件：${
           testsDirSpecs.length ? testsDirSpecs.join(", ") : "无"
@@ -1137,9 +1503,15 @@ async function startRun({
         testsDirSpecs.length ? "run" : "warn"
       );
     }
+    if (isMobileTarget) {
+      emitLog(
+        `步骤5包含 Expo App 测试，模式=${run.appTestMode || "both"}（Jest/Detox）`,
+        "run"
+      );
+    }
 
     let mcpSpecSnippets = "";
-    if (useMcpCdp) {
+    if (isWebTarget && useMcpCdp) {
       await ensureWorkspaceChromeDevtoolsMcpTemplate(run.workspacePath);
       mcpSpecSnippets = await loadPlaywrightSpecSnippetsForMcp(
         run.workspacePath,
@@ -1158,200 +1530,271 @@ async function startRun({
       }
     }
 
+    async function runMobileRound(i) {
+      const mode = normalizeAppTestMode(run.appTestMode);
+      const commands = [];
+      if (mode === "jest" || mode === "both") {
+        commands.push({ label: "Jest", command: "npm run test:app:jest", optional: false });
+      }
+      if (mode === "detox" || mode === "both") {
+        commands.push({
+          label: "Detox",
+          command: "npm run test:app:detox",
+          optional: mode === "both"
+        });
+      }
+      if (commands.length === 0) {
+        commands.push({ label: "App", command: "npm run test:app", optional: false });
+      }
+      run.mobile.commands = commands.map((x) => x.command);
+      const outputs = [];
+      let ok = true;
+      let degradedDetox = false;
+      for (const cmd of commands) {
+        emitLog(`步骤5 第 ${i} 轮：执行移动端 ${cmd.label} 命令 \`${cmd.command}\``, "run");
+        const result = await runCommand({
+          command: cmd.command,
+          cwd: run.workspacePath,
+          timeoutMs: 8 * 60 * 1000,
+          signal: controller.signal
+        });
+        const out = `${result.stdout}\n${result.stderr}`.trim();
+        outputs.push(`## ${cmd.label}\n${out || "(empty)"}`);
+        if (!result.ok) {
+          const low = out.toLowerCase();
+          const detoxEnvMissing =
+            cmd.label === "Detox" &&
+            (low.includes("simulator") ||
+              low.includes("emulator") ||
+              low.includes("no booted device") ||
+              low.includes("device not found") ||
+              low.includes("detox not installed"));
+          if (cmd.optional && detoxEnvMissing) {
+            degradedDetox = true;
+            emitLog(
+              `步骤5 第 ${i} 轮：Detox 环境不可用，按降级策略跳过 Detox 并继续（Jest 结果仍作为通过依据）`,
+              "warn"
+            );
+            continue;
+          }
+          ok = false;
+          break;
+        }
+      }
+      return {
+        ok,
+        output: outputs.join("\n\n"),
+        degradedDetox
+      };
+    }
+
     let passed = false;
     let lastTestOutput = "";
 
     for (let i = 1; i <= run.maxIterations; i += 1) {
       run.iterations = i;
-      const driverLabel = useMcpCdp ? "Cursor MCP" : "Playwright(tests/)";
+      const driverLabel = isWebTarget
+        ? (useMcpCdp ? "Cursor MCP" : "Playwright(tests/)")
+        : "Expo App Tests";
       emitLog(
-        `步骤5 第 ${i}/${run.maxIterations} 轮开始（${driverLabel}），目标 ${appUrl}`,
+        `步骤5 第 ${i}/${run.maxIterations} 轮开始（${driverLabel}${isMobileTarget && isWebTarget ? " + Expo" : ""}）`,
         "run"
       );
       setStep(5, "active", `第 ${i} 轮：准备中（${driverLabel}）…`);
       const roundPhase = useMcpCdp ? `cdp_mcp_round_${i}` : `cdp_test_round_${i}`;
-      const emitTestChunk = useMcpCdp
+      const emitTestChunk = useMcpCdp || !isWebTarget
         ? null
         : createCliChunkEmitter({
             stepId: 5,
             phase: roundPhase,
             minIntervalMs: 60
           });
-      const testResult = await withCliHeartbeat(
-        {
-          stepId: 5,
-          phase: roundPhase,
-          message: `第 ${i} 轮 ${useMcpCdp ? "MCP" : "Playwright tests"} 执行中`
-        },
-        () =>
-          useMcpCdp
-            ? (async () => {
-                emitLog(
-                  `步骤5 第 ${i} 轮：正在启动 npm start（PORT=${appPort}），等待端口就绪…`,
-                  "run"
-                );
-                setStep(
-                  5,
-                  "active",
-                  `第 ${i} 轮：启动应用并等待端口 ${appPort}…`
-                );
-                return withWorkspaceDevServer(
-                  {
-                    workspacePath: run.workspacePath,
-                    port: appPort,
-                    signal: controller.signal
-                  },
-                  async () => {
-                  emitLog(
-                    `步骤5 第 ${i} 轮：应用已监听端口 ${appPort}，正在调用 cursor agent（MCP 浏览器验页，日志见 [stdout]/[stderr]）`,
-                    "run"
-                  );
-                  setStep(
-                    5,
-                    "active",
-                    `第 ${i} 轮：MCP 验页中（cursor agent，详见事件日志流）…`
-                  );
-                  const pf = runCursorAgentMcpListSync(
+
+      let webResult = { ok: true, stdout: "", stderr: "", timedOut: false, killedByAbort: false };
+      if (isWebTarget) {
+        webResult = await withCliHeartbeat(
+          {
+            stepId: 5,
+            phase: roundPhase,
+            message: `第 ${i} 轮 ${useMcpCdp ? "MCP" : "Playwright tests"} 执行中`
+          },
+          () =>
+            useMcpCdp
+              ? (async () => {
+                  const devServerLauncher = await resolveWorkspaceDevServerLauncher(
                     run.workspacePath,
-                    12000
-                  );
-                  const pfText = [
-                    `exit_status=${pf.status == null ? "null" : pf.status}`,
-                    pf.err ? `spawn_error=${pf.err}` : "",
-                    "--- stdout ---",
-                    pf.stdout || "(empty)",
-                    "--- stderr ---",
-                    pf.stderr || "(empty)"
-                  ]
-                    .filter(Boolean)
-                    .join("\n");
-                  const pfPath = await saveArtifact(
-                    `05_mcp_preflight_round_${i}.log`,
-                    pfText
+                    { preferWeb: true }
                   );
                   emitLog(
-                    `步骤5 第 ${i} 轮：MCP 预检已写入 ${pfPath}；摘要: ${truncate(
-                      pfText,
-                      1400
-                    )}`,
+                    `步骤5 第 ${i} 轮：正在启动 ${devServerLauncher.label}（PORT=${appPort}），等待端口就绪…`,
                     "run"
                   );
-                  if (pfText.includes("needs approval")) {
-                    emitLog(
-                      "【重要】预检含 needs approval：请在 Cursor → Settings → MCP 中为 chrome-devtools 启用并批准，再执行 Developer: Reload Window 后重跑。",
-                      "warn"
-                    );
-                  }
-                  if (pfText.includes("chrome-devtools: ready")) {
-                    emitLog(
-                      "提示：chrome-devtools: ready 仅表示 CLI 已注册该 MCP；若仍报 User rejected MCP，请在当次 Agent 会话中允许工具调用，或在 Cursor 中开启 MCP 工具自动批准（与会话级批准不同）。",
-                      "warn"
-                    );
-                  }
-                  const compose = await runComposeStep(
-                    5,
-                    "步骤5 MCP浏览器验页",
-                    buildCursorMcpCdpPrompt({
-                      appUrl,
-                      appPort,
-                      testPlanExcerpt: step4TestPlanExcerpt,
-                      specFileList: testsDirSpecs,
-                      specSnippets: mcpSpecSnippets
-                    }),
-                    180000,
-                    roundPhase
-                  );
-                  const out = `${compose.stdout}\n${compose.stderr}`.trim();
-                  let summaryJson = extractJsonBlock(out);
-                  let roundOk = compose.ok;
-                  if (summaryJson && summaryJson.ok === false) roundOk = false;
-                  if (roundOk && summaryJson) {
-                    try {
-                      const health = await httpGetJson(`${appUrl}/api/health`, 4000);
-                      summaryJson = {
-                        ...summaryJson,
-                        mode: "cursor-mcp-ui-check",
-                        appUrl,
-                        api: {
-                          statusCode: health.statusCode,
-                          body: (health.body || "").slice(0, 500)
+                  setStep(5, "active", `第 ${i} 轮：启动应用并等待端口 ${appPort}…`);
+                  return withWorkspaceDevServer(
+                    {
+                      workspacePath: run.workspacePath,
+                      port: appPort,
+                      signal: controller.signal,
+                      launcher: devServerLauncher
+                    },
+                    async () => {
+                      emitLog(
+                        `步骤5 第 ${i} 轮：应用已监听端口 ${appPort}，正在调用 cursor agent（MCP 浏览器验页）`,
+                        "run"
+                      );
+                      const pf = runCursorAgentMcpListSync(run.workspacePath, 45000);
+                      const toolsPf = runCursorAgentMcpListToolsSync(
+                        run.workspacePath,
+                        "chrome-devtools",
+                        25000
+                      );
+                      const pfText = [
+                        `exit_status=${pf.status == null ? "null" : pf.status}`,
+                        pf.err ? `spawn_error=${pf.err}` : "",
+                        "--- stdout ---",
+                        pf.stdout || "(empty)",
+                        "--- stderr ---",
+                        pf.stderr || "(empty)",
+                        "",
+                        "=== list-tools chrome-devtools ===",
+                        `exit_status=${toolsPf.status == null ? "null" : toolsPf.status}`,
+                        toolsPf.err ? `spawn_error=${toolsPf.err}` : "",
+                        "--- stdout ---",
+                        toolsPf.stdout || "(empty)",
+                        "--- stderr ---",
+                        toolsPf.stderr || "(empty)"
+                      ]
+                        .filter(Boolean)
+                        .join("\n");
+                      await saveArtifact(`05_mcp_preflight_round_${i}.log`, pfText);
+                      const mcpPreflightPrompt = truncate(pfText, 3000);
+                      const compose = await runComposeStep(
+                        5,
+                        "步骤5 MCP浏览器验页",
+                        buildCursorMcpCdpPrompt({
+                          appUrl,
+                          appPort,
+                          testPlanExcerpt: step4TestPlanExcerpt,
+                          specFileList: testsDirSpecs,
+                          specSnippets: mcpSpecSnippets,
+                          mcpPreflight: mcpPreflightPrompt
+                        }),
+                        180000,
+                        roundPhase
+                      );
+                      const out = `${compose.stdout}\n${compose.stderr}`.trim();
+                      let summaryJson = extractJsonBlock(out);
+                      let roundOk = compose.ok;
+                      if (summaryJson && summaryJson.ok === false) roundOk = false;
+                      if (roundOk && summaryJson) {
+                        try {
+                          const health = await httpGetJson(`${appUrl}/api/health`, 4000);
+                          summaryJson = {
+                            ...summaryJson,
+                            mode: "cursor-mcp-ui-check",
+                            appUrl,
+                            api: {
+                              statusCode: health.statusCode,
+                              body: (health.body || "").slice(0, 500)
+                            }
+                          };
+                        } catch {
+                          /* ignore */
                         }
-                      };
-                      const steps = Array.isArray(summaryJson.steps)
-                        ? [...summaryJson.steps]
-                        : ["ui-mcp-pass"];
-                      if (health.statusCode === 200 && health.json?.ok === true) {
-                        steps.push("api-health-pass");
-                      } else {
-                        steps.push("api-health-skip-or-nonstandard");
                       }
-                      summaryJson.steps = steps;
-                    } catch {
-                      /* 保留 agent 侧 summary */
+                      const mergedOut = summaryJson
+                        ? `${out}\n${JSON.stringify(summaryJson, null, 2)}`
+                        : out;
+                      return {
+                        ok: roundOk,
+                        stdout: mergedOut,
+                        stderr: compose.stderr || "",
+                        timedOut: compose.timedOut,
+                        killedByAbort: compose.killedByAbort
+                      };
                     }
-                  }
-                  const mergedOut = summaryJson
-                    ? `${out}\n${JSON.stringify(summaryJson, null, 2)}`
-                    : out;
-                  emitLog(
-                    `步骤5 第 ${i} 轮：cursor agent 已结束（进程成功=${compose.ok}，JSON 内 ok=${
-                      summaryJson == null ? "无 JSON" : summaryJson.ok
-                    }）`,
-                    compose.ok && roundOk ? "ok" : "error"
                   );
-                  return {
-                    ok: roundOk,
-                    stdout: mergedOut,
-                    stderr: compose.stderr || "",
-                    timedOut: compose.timedOut,
-                    killedByAbort: compose.killedByAbort
-                  };
-                }
-                );
-              })()
-            : (async () => {
-                emitLog(
-                  `步骤5 第 ${i} 轮：正在执行 npx playwright test tests（与子项目 tests/ 下 *.spec.js 一致），输出见 [stdout]/[stderr]`,
-                  "run"
-                );
-                setStep(
-                  5,
-                  "active",
-                  `第 ${i} 轮：Playwright tests/ 运行中（详见日志流）…`
-                );
-                return runCommand({
-                  command: testCommand,
-                  cwd: run.workspacePath,
-                  env: playwrightStep5Env,
-                  timeoutMs: 300000,
-                  signal: controller.signal,
-                  onStdoutChunk: (text) => emitTestChunk("stdout", text),
-                  onStderrChunk: (text) => emitTestChunk("stderr", text)
-                });
-              })()
-      );
-      lastTestOutput = `${testResult.stdout}\n${testResult.stderr}`.trim();
-      await saveArtifact(`05_test_round_${i}.log`, lastTestOutput);
-      if (testResult.ok) {
-        emitLog(
-          `步骤5 第 ${i} 轮本轮结束：通过${
-            testResult.timedOut ? "（子进程超时）" : ""
-          }${testResult.killedByAbort ? "（已中止）" : ""}`,
-          "ok"
+                })()
+              : (async () => {
+                  const firstEnv = await buildPlaywrightStep5Env(i);
+                  let first = await runCommand({
+                    command: testCommand,
+                    cwd: run.workspacePath,
+                    env: firstEnv,
+                    timeoutMs: 300000,
+                    signal: controller.signal,
+                    onStdoutChunk: (text) => emitTestChunk("stdout", text),
+                    onStderrChunk: (text) => emitTestChunk("stderr", text)
+                  });
+                  const firstOut = `${first.stdout}\n${first.stderr}`;
+                  if (!first.ok && hasPlaywrightPortConflict(firstOut) && firstEnv.PLAYWRIGHT_REUSE_SERVER !== "1") {
+                    emitLog(
+                      `步骤5 第 ${i} 轮：检测到 Playwright 端口冲突，自动切换 PLAYWRIGHT_REUSE_SERVER=1 重试一次`,
+                      "warn"
+                    );
+                    const retryEnv = { ...firstEnv, PLAYWRIGHT_REUSE_SERVER: "1" };
+                    const retry = await runCommand({
+                      command: testCommand,
+                      cwd: run.workspacePath,
+                      env: retryEnv,
+                      timeoutMs: 300000,
+                      signal: controller.signal,
+                      onStdoutChunk: (text) => emitTestChunk("stdout", text),
+                      onStderrChunk: (text) => emitTestChunk("stderr", text)
+                    });
+                    const mergedStdout = `${first.stdout}\n\n[AutoFlow Retry] retry with PLAYWRIGHT_REUSE_SERVER=1\n${retry.stdout}`.trim();
+                    const mergedStderr = `${first.stderr}\n\n${retry.stderr}`.trim();
+                    first = {
+                      ...retry,
+                      stdout: mergedStdout,
+                      stderr: mergedStderr
+                    };
+                  }
+                  return first;
+                })()
         );
+      }
+
+      let mobileResult = { ok: true, output: "", degradedDetox: false };
+      if (isMobileTarget) {
+        mobileResult = await withCliHeartbeat(
+          {
+            stepId: 5,
+            phase: `mobile_test_round_${i}`,
+            message: `第 ${i} 轮 Expo 移动端测试执行中`
+          },
+          () => runMobileRound(i)
+        );
+      }
+      run.mobile.lastRound = i;
+      run.mobile.degradedDetox = Boolean(mobileResult.degradedDetox);
+      run.mobile.lastStatus = mobileResult.ok ? "passed" : "failed";
+      const webOutput = `${webResult.stdout}\n${webResult.stderr}`.trim();
+      const mergedOutput = [
+        isWebTarget ? `## Web\n${webOutput || "(empty)"}` : "",
+        isMobileTarget ? `## App\n${mobileResult.output || "(empty)"}` : ""
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+      lastTestOutput = mergedOutput.trim();
+      await saveArtifact(`05_test_round_${i}.log`, lastTestOutput);
+      if (isMobileTarget) {
+        await saveArtifact(`05_mobile_test_round_${i}.log`, mobileResult.output || "");
+      }
+      const testOk = webResult.ok && mobileResult.ok;
+      if (testOk) {
+        emitLog(`步骤5 第 ${i} 轮本轮结束：通过`, "ok");
       } else {
-        const failBrief = extractPlaywrightFailureOneLiner(lastTestOutput);
+        const webBrief = !webResult.ok ? extractPlaywrightFailureOneLiner(webOutput) : "";
+        const mobileBrief = !mobileResult.ok ? extractMobileFailureOneLiner(mobileResult.output) : "";
+        const failBrief = [webBrief, mobileBrief].filter(Boolean).join(" | ");
         emitLog(
-          `步骤5 第 ${i} 轮本轮结束：未通过${
-            testResult.timedOut ? "（子进程超时）" : ""
-          }${testResult.killedByAbort ? "（已中止）" : ""}${
-            failBrief ? ` — ${failBrief}` : ""
-          }`,
+          `步骤5 第 ${i} 轮本轮结束：未通过${failBrief ? ` — ${failBrief}` : ""}`,
           "error"
         );
       }
       run.cdp.lastRound = i;
-      const cdpJson = extractJsonBlock(lastTestOutput);
+      const cdpJson = isWebTarget ? extractJsonBlock(webOutput) : null;
       if (cdpJson) {
         emit(run.id, "cdp_status", {
           round: i,
@@ -1360,33 +1803,39 @@ async function startRun({
         });
       }
 
-      if (testResult.ok) {
+      if (testOk) {
         setStep(5, "done", `第 ${i} 轮测试通过`);
         run.cdp.passedRounds += 1;
         run.cdp.lastStatus = "passed";
-        if (should(6)) {
-          setStep(6, "done", "无需失败分析");
-        } else {
-          setStep(6, "skipped", "本 run 未启用");
-        }
-        if (should(7)) {
-          setStep(7, "done", "无需自动修复");
-        } else {
-          setStep(7, "skipped", "本 run 未启用");
-        }
+        run.mobile.lastStatus = "passed";
+        if (should(6)) setStep(6, "done", "无需失败分析");
+        else setStep(6, "skipped", "本 run 未启用");
+        if (should(7)) setStep(7, "done", "无需自动修复");
+        else setStep(7, "skipped", "本 run 未启用");
         passed = true;
         emitLog(`第 ${i} 轮测试通过`, "ok");
         break;
       }
 
+      const failedDriver = !webResult.ok
+        ? (useMcpCdp ? "cursor_mcp" : "playwright")
+        : "mobile_expo";
+      const failedOutput = !webResult.ok ? webOutput : mobileResult.output;
+      const failureDetails =
+        failedDriver === "mobile_expo"
+          ? parseMobileFailureDetails(failedOutput)
+          : parseFailureDetails(failedOutput);
+      const failBriefForCard =
+        failedDriver === "mobile_expo"
+          ? extractMobileFailureOneLiner(failedOutput)
+          : extractPlaywrightFailureOneLiner(failedOutput);
       run.lastFailure = truncate(lastTestOutput, 6000);
       run.cdp.failedRounds += 1;
       run.cdp.lastStatus = "failed";
+      run.mobile.lastStatus = mobileResult.ok ? "passed" : "failed";
       setStep(5, "error", `第 ${i} 轮失败`);
-      const failureDetails = parseFailureDetails(lastTestOutput);
-      const failBriefForCard = extractPlaywrightFailureOneLiner(lastTestOutput);
       const mcpSummary =
-        useMcpCdp && cdpJson && typeof cdpJson === "object"
+        failedDriver === "cursor_mcp" && cdpJson && typeof cdpJson === "object"
           ? {
               mode: cdpJson.mode,
               ok: cdpJson.ok,
@@ -1396,16 +1845,16 @@ async function startRun({
           : null;
       emit(run.id, "test_failed", {
         round: i,
-        testCommand,
+        testCommand: failedDriver === "mobile_expo" ? (run.mobile.commands || []).join(" && ") : testCommand,
         brief: failBriefForCard,
         details: failureDetails,
         output: truncate(lastTestOutput, 4000),
-        driver: useMcpCdp ? "cursor_mcp" : "playwright",
+        driver: failedDriver,
         mcpSummary,
         at: now()
       });
 
-      const step6PromptBody = useMcpCdp
+      const step6PromptBody = failedDriver === "cursor_mcp"
         ? [
             "以下是步骤 5（Cursor MCP / chrome-devtools-mcp）真测失败时的完整输出（含 agent 说明与末尾 JSON）。",
             "说明：此类失败**不是** Playwright 的 locator 断言；可能是 MCP 工具不可用、User rejected MCP、JSON 内 ok:false、页面未达预期等。",
@@ -1418,6 +1867,18 @@ async function startRun({
             "",
             truncate(lastTestOutput, 12000)
           ].join("\n")
+        : failedDriver === "mobile_expo"
+          ? [
+              "以下是步骤5移动端测试（Expo + Jest/Detox）失败输出。",
+              "请结构化输出：",
+              "- failure_type（jest_fail / detox_fail / expo_env / script_error 等）",
+              "- failed_test_name（若可提取）",
+              "- root_cause",
+              "- fix_plan(最小改动)",
+              "- fallback（如 Detox 环境不足时如何保留 Jest 回归）",
+              "",
+              truncate(lastTestOutput, 12000)
+            ].join("\n")
         : [
             "以下是步骤5项目测试（npx playwright test tests）失败输出。请结构化输出：",
             "- failed_test_name",
@@ -1435,7 +1896,11 @@ async function startRun({
         setStep(6, "active", `第 ${i} 轮失败分析`);
         const analysis = await runComposeStep(
           6,
-          useMcpCdp ? "步骤6 失败根因分析（MCP）" : "步骤6 失败根因分析",
+          failedDriver === "cursor_mcp"
+            ? "步骤6 失败根因分析（MCP）"
+            : failedDriver === "mobile_expo"
+              ? "步骤6 失败根因分析（Mobile）"
+              : "步骤6 失败根因分析",
           step6PromptBody,
           180000,
           `failure_analysis_round_${i}`
@@ -1461,19 +1926,25 @@ async function startRun({
         emit(run.id, "structured_failure", {
           round: i,
           details: failureDetails,
-          driver: useMcpCdp ? "cursor_mcp" : "playwright",
-          mcpSummary: useMcpCdp ? mcpSummary : null,
+          driver: failedDriver,
+          mcpSummary: failedDriver === "cursor_mcp" ? mcpSummary : null,
           at: now()
         });
 
         setStep(7, "active", `第 ${i} 轮自动修复`);
-        const step7Intro = useMcpCdp
+        const step7Intro = failedDriver === "cursor_mcp"
           ? [
               "请根据步骤 6 的失败分析与下列原始输出执行最小化修复或给出可执行结论。",
               "步骤 5 来自 chrome-devtools-mcp / Cursor MCP：若根因是 MCP 未批准、User rejected MCP、CLI 未加载 MCP，则**优先**在结论中说明用户需在 Cursor 中完成的配置/批准；仅当根因明确为应用 HTTP/标题/API/页面逻辑时再改业务代码。",
               "硬性要求：不得修改测试意图；优先修业务代码（仅当适用时）；给出修复证据或环境配置说明与回归方式。",
               ""
             ].join("\n")
+          : failedDriver === "mobile_expo"
+            ? [
+                "请根据失败分析与下列输出执行最小化修复（Expo + Jest/Detox）。",
+                "硬性要求：优先修业务代码或测试脚本，不得删除测试意图；若 Detox 环境受限，需给出可执行降级方案并保留 Jest 回归。",
+                ""
+              ].join("\n")
           : [
               "请根据失败分析和原始输出执行最小化修复。",
               "硬性要求：不得修改测试意图；优先修业务代码；给出修复证据与回归说明。",
@@ -1481,7 +1952,11 @@ async function startRun({
             ].join("\n");
         const fix = await runComposeStep(
           7,
-          useMcpCdp ? "步骤7 自动修复代码（承接 MCP 失败分析）" : "步骤7 自动修复代码",
+          failedDriver === "cursor_mcp"
+            ? "步骤7 自动修复代码（承接 MCP 失败分析）"
+            : failedDriver === "mobile_expo"
+              ? "步骤7 自动修复代码（承接移动端失败分析）"
+              : "步骤7 自动修复代码",
           [
             step7Intro,
             "失败分析：",
@@ -1510,7 +1985,7 @@ async function startRun({
         setStep(6, "skipped", "本 run 未启用");
         setStep(7, "skipped", "本 run 未启用");
         throw new Error(
-          `CDP 第 ${i} 轮失败且未同时启用步骤 6 与 7，无法自动修复。输出摘要：\n${truncate(lastTestOutput, 800)}`
+          `步骤5 第 ${i} 轮失败且未同时启用步骤 6 与 7，无法自动修复。输出摘要：\n${truncate(lastTestOutput, 800)}`
         );
       }
     }
@@ -1608,7 +2083,10 @@ function createRunObject({
   useExistingWorkspace = false,
   cdpHeaded = false,
   cdpLingerMs = 3000,
-  cdpDriver
+  cdpDriver,
+  targetPlatform = "web",
+  appStack = "expo",
+  appTestMode = "both"
 }) {
   return {
     id,
@@ -1624,6 +2102,9 @@ function createRunObject({
     cdpHeaded: Boolean(cdpHeaded),
     cdpLingerMs: Number.isFinite(Number(cdpLingerMs)) && Number(cdpLingerMs) >= 0 ? Number(cdpLingerMs) : 3000,
     cdpDriver: normalizeCdpDriver(cdpDriver),
+    targetPlatform: normalizeTargetPlatform(targetPlatform),
+    appStack: normalizeAppStack(appStack),
+    appTestMode: normalizeAppTestMode(appTestMode),
     maxIterations,
     iterations: 0,
     status: "queued",
@@ -1636,6 +2117,7 @@ function createRunObject({
     error: "",
     skillsContract: null,
     cdp: null,
+    mobile: null,
     reportMarkdown: "",
     runDir: "",
     abortController: null
@@ -1645,5 +2127,8 @@ function createRunObject({
 module.exports = {
   createRunObject,
   startRun,
-  normalizeCdpDriver
+  normalizeCdpDriver,
+  normalizeTargetPlatform,
+  normalizeAppStack,
+  normalizeAppTestMode
 };

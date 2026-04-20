@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ops Admin Lab - Orders</title>
+    <link rel="stylesheet" href="/assets/app.css" />
+  </head>
+  <body data-page="orders">
+    <div class="layout">
+      <aside class="sidebar">
+        <div class="sidebar-brand">
+          <span class="sidebar-badge">Playwright Ready</span>
+          <h1>Ops Admin Lab</h1>
+        </div>
+        <nav class="sidebar-nav">
+          <span class="sidebar-section-label">Workspace</span>
+          <a class="nav-link" data-nav="dashboard" href="/">仪表盘</a>
+          <a class="nav-link" data-nav="users" href="/users.html">用户中心</a>
+          <a class="nav-link" data-nav="orders" href="/orders.html">订单中心</a>
+          <a class="nav-link" data-nav="reviews" href="/reviews.html">审核工作台</a>
+        </nav>
+        <div class="sidebar-footer">
+          <span class="sidebar-footer-label">Environment</span>
+          <strong>Local Mock Workspace</strong>
+        </div>
+      </aside>
+      <main class="content">
+        <div class="content-shell">
+        <div class="page-header">
+          <div>
+            <span class="page-eyebrow">Order Center</span>
+            <h2>订单中心</h2>
+            <p>覆盖筛选、详情页与异常提审场景。</p>
+          </div>
+          <div class="page-actions">
+            <div class="page-badges">
+              <span class="soft-badge">Flagging</span>
+              <span class="soft-badge">Review flow</span>
+            </div>
+          </div>
+        </div>
+        <div class="flash" data-testid="global-error"></div>
+        <section class="panel">
+          <h3>订单列表</h3>
+          <p class="panel-subtitle">聚焦异常标记、订单状态与提审链路，方便测试筛选和详情跳转。</p>
+          <div class="toolbar">
+            <select data-testid="order-status-filter">
+              <option value="all">全部状态</option>
+              <option value="pending-review">pending-review</option>
+              <option value="draft">draft</option>
+              <option value="completed">completed</option>
+            </select>
+            <button data-testid="apply-order-filters">应用筛选</button>
+          </div>
+          <div class="table-shell compact">
+            <table>
+              <thead>
+                <tr>
+                  <th>订单号</th>
+                  <th>用户</th>
+                  <th>状态</th>
+                  <th>金额</th>
+                  <th>异常</th>
+                  <th>创建时间</th>
+                </tr>
+              </thead>
+              <tbody data-testid="orders-table-body"></tbody>
+            </table>
+          </div>
+        </section>
+        </div>
+      </main>
+    </div>
+    <script src="/assets/app.js"></script>
+  </body>
+  </html>

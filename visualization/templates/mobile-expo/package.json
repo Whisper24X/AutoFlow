@@ -1,0 +1,11 @@
+{
+  "name": "generated-expo-app-template",
+  "private": true,
+  "version": "0.0.1",
+  "scripts": {
+    "start": "npx expo start",
+    "test:app": "npm run test:app:jest && npm run test:app:detox",
+    "test:app:jest": "node ./scripts/mobile-jest-placeholder.cjs",
+    "test:app:detox": "node ./scripts/mobile-detox-placeholder.cjs"
+  }
+}

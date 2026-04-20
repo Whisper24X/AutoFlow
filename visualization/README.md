@@ -1,6 +1,6 @@
 # AI 软件工程闭环平台（Skills + CDP）
 
-这是一个可直接运行的本地闭环平台：每个步骤强绑定 `.agents` skill；**步骤 4** 根据 **步骤 2** 架构拆解生成测试用例与 `tests/*.spec.js`；**步骤 5** 在子项目内执行 **`BASE_URL`/`PORT` + `npx playwright test tests`**（与 `tests/*.spec.js` 对齐；`playwright.config` 的 `webServer` 拉起或复用服务），可选改为 `cursor agent` + Cursor MCP，驱动 5→6→7→5 修复回路。
+这是一个可直接运行的本地闭环平台：每个步骤强绑定 `.agents` skill；**步骤 4** 根据 **步骤 2** 架构拆解生成测试用例与 `tests/*.spec.js`；**步骤 5** 在子项目内执行 **`BASE_URL`/`PORT` + `npx playwright test tests`**（与 `tests/*.spec.js` 对齐；`playwright.config` 的 `webServer` 拉起或复用服务），可选改为 `cursor agent` + Cursor MCP，驱动 5→6→7→5 修复回路。现在支持运行目标 `web / app / web_app`，其中 `app` 采用 Expo 并支持 Jest/Detox 测试模式。
 
 ## 核心能力
 
@@ -12,6 +12,15 @@
 - 实时透传 `cli_chunk`（stdout/stderr）到日志面板，能看到 CLI 增量输出
 - 每个项目目录下 **`.autoflow/report.md`**（及同目录其它步骤产物）输出 skills 证据链 + CDP 执行摘要；**同一工作区多次运行会覆盖更新**该目录
 - 每个需求自动创建独立目录：`visualization/projects/<runId>-<slug>/`
+- App 模式支持 `targetPlatform=app|web_app`、`appStack=expo`、`appTestMode=jest|detox|both`
+- App 测试命令默认约定：`npm run test:app:jest` / `npm run test:app:detox` / `npm run test:app`
+
+## App 运行模式（Expo）
+
+- `targetPlatform=app`：步骤 5 仅执行移动端测试命令（Jest/Detox）。
+- `targetPlatform=web_app`：步骤 5 串行执行 Web（Playwright/MCP）+ App（Expo 测试）。
+- `appTestMode=both`：优先跑 Jest + Detox。若 Detox 环境缺失（无模拟器/无 detox），引擎会记录告警并按降级策略保留 Jest 回归。
+- 模板目录：`visualization/templates/mobile-expo/`，用于新建 app/workspace 的最小脚手架占位。
 
 ## 步骤与 skill 绑定表（strict_per_step）
 
@@ -74,6 +83,17 @@ npm start
 ```
 
 访问 [http://127.0.0.1:4180/](http://127.0.0.1:4180/)。
+
+## 最小自动化门禁（步骤 5）
+
+- 目标：保证 `npm test` 不只是“命令可跑”，而是对平台核心链路给出真实质量信号。
+- 用例位置：`visualization/tests/smoke-ui.spec.js`、`visualization/tests/smoke-api.spec.js`
+  - UI 冒烟：主页可达、核心控制按钮可见、步骤勾选器可用
+  - API 冒烟：`/api/health` 与订单 CRUD（创建/查询/更新/删除）
+- 运行命令：
+  - `npm test`（完整门禁）
+  - `npm run test:smoke`（最小冒烟）
+- 报告产物：`visualization/playwright-report/`（`open: never`，便于 CI/演示留档）
 
 ## CDP 真测前置
 

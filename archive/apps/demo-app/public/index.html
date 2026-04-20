@@ -95,7 +95,7 @@
       function calculateTotal(price, quantity, coupon) {
         const subtotal = price * quantity;
 
-        // 修复后：优惠码 SAVE10 正确打 9 折。
+        // 优惠码 SAVE10 应打 9 折。
         if (coupon === "SAVE10") {
           return subtotal * 0.9;
         }

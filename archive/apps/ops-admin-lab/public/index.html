@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ops Admin Lab - Dashboard</title>
+    <link rel="stylesheet" href="/assets/app.css" />
+  </head>
+  <body data-page="dashboard">
+    <div class="layout">
+      <aside class="sidebar">
+        <div class="sidebar-brand">
+          <span class="sidebar-badge">Playwright Ready</span>
+          <h1>Ops Admin Lab</h1>
+        </div>
+        <nav class="sidebar-nav">
+          <span class="sidebar-section-label">Workspace</span>
+          <a class="nav-link" data-nav="dashboard" href="/">仪表盘</a>
+          <a class="nav-link" data-nav="users" href="/users.html">用户中心</a>
+          <a class="nav-link" data-nav="orders" href="/orders.html">订单中心</a>
+          <a class="nav-link" data-nav="reviews" href="/reviews.html">审核工作台</a>
+        </nav>
+        <div class="sidebar-footer">
+          <span class="sidebar-footer-label">Environment</span>
+          <strong>Local Mock Workspace</strong>
+        </div>
+      </aside>
+      <main class="content">
+        <div class="content-shell">
+        <div class="page-header">
+          <div>
+            <span class="page-eyebrow">Operations Overview</span>
+            <h2>运营总览</h2>
+            <p>聚合用户、订单与审核工作流，方便验证跨页数据关系。</p>
+          </div>
+          <div class="page-actions">
+            <div class="page-badges">
+              <span class="soft-badge">6 pages</span>
+              <span class="soft-badge">Stable mocks</span>
+            </div>
+            <a class="button-link" href="/reviews.html">进入审核工作台</a>
+          </div>
+        </div>
+        <div class="flash" data-testid="global-error"></div>
+        <section class="grid cards">
+          <article class="panel stat-panel">
+            <div class="stat-value" data-testid="stat-users">-</div>
+            <div class="stat-label">总用户数</div>
+          </article>
+          <article class="panel stat-panel">
+            <div class="stat-value" data-testid="stat-pending-reviews">-</div>
+            <div class="stat-label">待审核任务</div>
+          </article>
+          <article class="panel stat-panel">
+            <div class="stat-value" data-testid="stat-flagged-orders">-</div>
+            <div class="stat-label">异常订单</div>
+          </article>
+          <article class="panel stat-panel">
+            <div class="stat-value" data-testid="stat-watchlist-users">-</div>
+            <div class="stat-label">观察名单用户</div>
+          </article>
+        </section>
+        <section class="grid dashboard-split" style="margin-top: 18px;">
+          <article class="panel">
+            <h3>最近订单</h3>
+            <p class="panel-subtitle">最近发生的关键订单会在这里汇总，便于快速进入详情页。</p>
+            <div class="table-shell compact">
+              <table>
+                <thead>
+                  <tr>
+                    <th>订单号</th>
+                    <th>用户</th>
+                    <th>状态</th>
+                    <th>金额</th>
+                    <th>异常</th>
+                    <th>创建时间</th>
+                  </tr>
+                </thead>
+                <tbody data-testid="recent-orders-body"></tbody>
+              </table>
+            </div>
+          </article>
+          <article class="panel">
+            <h3>待处理审核队列</h3>
+            <p class="panel-subtitle">从这里可直接进入审核流程和关联详情页面。</p>
+            <div class="table-shell">
+              <table>
+                <thead>
+                  <tr>
+                    <th>标题</th>
+                    <th>类型</th>
+                    <th>关联用户</th>
+                    <th>优先级</th>
+                    <th>状态</th>
+                    <th>目标</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody data-testid="review-queue-body"></tbody>
+              </table>
+            </div>
+          </article>
+        </section>
+        </div>
+      </main>
+    </div>
+    <script src="/assets/app.js"></script>
+  </body>
+  </html>

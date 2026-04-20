@@ -3,7 +3,7 @@
  * 未加载 Web 字体时自动回退到系统 UI 字体。
  */
 :root {
-  --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
-  --font-display: "DM Serif Display", Georgia, "Times New Roman", serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", "Menlo", "Consolas", monospace;
+  --font-sans: "IBM Plex Sans", "PingFang SC", "Hiragino Sans GB", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --font-display: "DM Serif Display", "Noto Serif SC", Georgia, "Times New Roman", serif;
+  --font-mono: "IBM Plex Mono", "JetBrains Mono", ui-monospace, "SF Mono", "Menlo", "Consolas", monospace;
 }

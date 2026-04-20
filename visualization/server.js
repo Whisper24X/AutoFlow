@@ -2,11 +2,19 @@ const express = require("express");
 const http = require("http");
 const { spawn, execFile } = require("child_process");
 const path = require("path");
+const os = require("os");
 const fs = require("fs/promises");
 const fsSync = require("fs");
 const crypto = require("crypto");
 const { DEFAULT_MODEL } = require("./cursor-cli-adapter");
-const { createRunObject, startRun, normalizeCdpDriver } = require("./run-engine");
+const {
+  createRunObject,
+  startRun,
+  normalizeCdpDriver,
+  normalizeTargetPlatform,
+  normalizeAppStack,
+  normalizeAppTestMode
+} = require("./run-engine");
 
 const app = express();
 const port = process.env.PORT || 4180;
@@ -188,6 +196,10 @@ function publicRun(run) {
     cdpHeaded: Boolean(run.cdpHeaded),
     cdpLingerMs: run.cdpLingerMs,
     cdpDriver: run.cdpDriver || "playwright",
+    targetPlatform: run.targetPlatform || "web",
+    appStack: run.appStack || "expo",
+    appTestMode: run.appTestMode || "both",
+    mobile: run.mobile || null,
     artifactDir:
       run.runDir ||
       (run.workspacePath ? path.join(run.workspacePath, ".autoflow") : "")
@@ -299,6 +311,9 @@ async function readCompletedReportEntry(reportPath, listId) {
   const appPort = Number.parseInt(portStr, 10);
   const baseUrlLine = parseReportLine(raw, "- baseUrl:");
   const appUrl = normalizeAppUrl(baseUrlLine, Number.isFinite(appPort) ? appPort : portStr);
+  const targetPlatform = parseReportLine(raw, "- 目标平台:") || "web";
+  const appStack = parseReportLine(raw, "- App 技术栈:") || "";
+  const appTestMode = parseReportLine(raw, "- App 测试模式:") || "";
 
   const finishedAt = parseReportLine(raw, "- 结束:") || null;
   const startedAt = parseReportLine(raw, "- 开始:") || null;
@@ -324,6 +339,9 @@ async function readCompletedReportEntry(reportPath, listId) {
     projectPath,
     appPort: Number.isFinite(appPort) ? appPort : null,
     appUrl,
+    targetPlatform,
+    appStack,
+    appTestMode,
     requirementPreview,
     sortKey
   };
@@ -420,6 +438,9 @@ async function sendCompletedRunsList(_req, res) {
  */
 app.get("/api/probe-app", (req, res) => {
   const port = Number.parseInt(String(req.query.port || ""), 10);
+  const targetPlatform = String(req.query.targetPlatform || "web")
+    .trim()
+    .toLowerCase();
   if (!Number.isFinite(port) || port < 1 || port > 65535) {
     res.status(400).json({ error: "port 参数无效" });
     return;
@@ -435,6 +456,50 @@ app.get("/api/probe-app", (req, res) => {
     (r) => {
       const ok = r.statusCode === 200;
       r.resume();
+      if (!ok && (targetPlatform === "app" || targetPlatform === "web_app")) {
+        const fallback = http.get(
+          {
+            hostname: "127.0.0.1",
+            port,
+            path: "/",
+            timeout: 2000,
+            agent: false
+          },
+          (r2) => {
+            const ok2 = Number(r2.statusCode) >= 200 && Number(r2.statusCode) < 500;
+            r2.resume();
+            if (!res.headersSent) {
+              res.json({
+                ok: ok2,
+                port,
+                statusCode: r2.statusCode,
+                reason: ok2
+                  ? "在线（APP 模式，未检测 /api/health）"
+                  : `HTTP ${r2.statusCode}（APP 模式探测 /）`
+              });
+            }
+          }
+        );
+        fallback.on("error", (err2) => {
+          if (res.headersSent) return;
+          res.json({
+            ok: false,
+            port,
+            reason:
+              err2.code === "ECONNREFUSED"
+                ? "未监听（需在本机启动子项目）"
+                : err2.message || String(err2)
+          });
+        });
+        fallback.on("timeout", () => {
+          fallback.destroy();
+          if (!res.headersSent) {
+            res.json({ ok: false, port, reason: "探测超时" });
+          }
+        });
+        fallback.setTimeout(2000);
+        return;
+      }
       if (!res.headersSent) {
         res.json({
           ok,
@@ -462,6 +527,365 @@ app.get("/api/probe-app", (req, res) => {
     }
   });
   probe.setTimeout(2000);
+});
+
+function getAndroidSdkRoot() {
+  return (
+    process.env.ANDROID_SDK_ROOT ||
+    process.env.ANDROID_HOME ||
+    path.join(os.homedir(), "Library", "Android", "sdk")
+  );
+}
+
+function getAdbCandidates() {
+  const sdk = getAndroidSdkRoot();
+  const adbName = process.platform === "win32" ? "adb.exe" : "adb";
+  return [path.join(sdk, "platform-tools", adbName), adbName];
+}
+
+function getEmulatorCandidates() {
+  const sdk = getAndroidSdkRoot();
+  const emuName = process.platform === "win32" ? "emulator.exe" : "emulator";
+  return [path.join(sdk, "emulator", emuName), emuName];
+}
+
+function execFileText(bin, args, timeoutMs = 4000) {
+  return new Promise((resolve) => {
+    execFile(
+      bin,
+      args,
+      {
+        timeout: timeoutMs,
+        windowsHide: true,
+        maxBuffer: 1024 * 1024
+      },
+      (err, stdout, stderr) => {
+        resolve({
+          ok: !err,
+          stdout: String(stdout || ""),
+          stderr: String(stderr || ""),
+          error: err ? err.message || String(err) : ""
+        });
+      }
+    );
+  });
+}
+
+async function runWithCandidates(candidates, args, timeoutMs = 4000) {
+  for (const bin of candidates) {
+    const absolute = path.isAbsolute(bin);
+    if (absolute && !fsSync.existsSync(bin)) continue;
+    const out = await execFileText(bin, args, timeoutMs);
+    if (out.ok) return { ...out, bin };
+    const missing = /not found|ENOENT|is not recognized/i.test(`${out.error}\n${out.stderr}`);
+    if (!missing) return { ...out, bin };
+  }
+  return {
+    ok: false,
+    stdout: "",
+    stderr: "",
+    error: "adb 不可用（请安装 Android Platform Tools）",
+    bin: ""
+  };
+}
+
+function parseAdbDevices(stdout) {
+  const lines = String(stdout || "")
+    .split(/\r?\n/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const out = [];
+  for (const line of lines) {
+    if (line.toLowerCase().startsWith("list of devices")) continue;
+    const m = line.match(/^(\S+)\s+(\S+)$/);
+    if (!m) continue;
+    out.push({ serial: m[1], state: m[2] });
+  }
+  return out;
+}
+
+function parseAvdList(stdout) {
+  return String(stdout || "")
+    .split(/\r?\n/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function pickAndroidAvdName(avds) {
+  const envName = String(process.env.AUTOFLOW_ANDROID_AVD || "").trim();
+  if (envName && avds.includes(envName)) return envName;
+  return avds[0] || "";
+}
+
+function getPreferredLanIp() {
+  const nets = os.networkInterfaces();
+  const preferredPrefix = /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[0-1])\.)/;
+  /** @type {string[]} */
+  const candidates = [];
+  for (const list of Object.values(nets || {})) {
+    for (const n of list || []) {
+      if (!n || n.family !== "IPv4" || n.internal) continue;
+      if (preferredPrefix.test(n.address)) return n.address;
+      candidates.push(n.address);
+    }
+  }
+  return candidates[0] || "127.0.0.1";
+}
+
+async function openExpoDeepLinkOnAndroid(deviceSerial, portNum) {
+  const urls = [
+    `exp://10.0.2.2:${portNum}`,
+    `exp://${getPreferredLanIp()}:${portNum}`
+  ];
+  for (const expUrl of urls) {
+    const openRes = await runWithCandidates(
+      getAdbCandidates(),
+      [
+        "-s",
+        deviceSerial,
+        "shell",
+        "am",
+        "start",
+        "-a",
+        "android.intent.action.VIEW",
+        "-d",
+        expUrl
+      ],
+      8000
+    );
+    if (openRes.ok) {
+      return { ok: true, usedUrl: expUrl };
+    }
+  }
+  return { ok: false, usedUrl: urls[0] };
+}
+
+async function waitForAndroidDeviceReady(timeoutMs = 45000) {
+  const started = Date.now();
+  let launchedAvd = "";
+  let lastState = "unknown";
+  while (Date.now() - started < timeoutMs) {
+    const adbList = await runWithCandidates(getAdbCandidates(), ["devices"], 5000);
+    if (adbList.ok) {
+      const devices = parseAdbDevices(adbList.stdout);
+      const emulator = devices.find((d) => d.serial.startsWith("emulator-")) || devices[0];
+      if (emulator) {
+        lastState = emulator.state;
+        if (emulator.state === "device") {
+          return {
+            ok: true,
+            serial: emulator.serial,
+            state: emulator.state,
+            launchedAvd,
+            reason: launchedAvd ? `已自动拉起模拟器：${launchedAvd}` : "检测到已连接设备"
+          };
+        }
+        if (emulator.state === "unauthorized") {
+          return {
+            ok: false,
+            serial: emulator.serial,
+            state: emulator.state,
+            launchedAvd,
+            reason: "设备未授权，请在模拟器确认 ADB 授权"
+          };
+        }
+      }
+    }
+
+    if (!launchedAvd) {
+      const emuList = await runWithCandidates(getEmulatorCandidates(), ["-list-avds"], 7000);
+      if (emuList.ok) {
+        const avds = parseAvdList(emuList.stdout);
+        const chosen = pickAndroidAvdName(avds);
+        if (chosen) {
+          for (const emuBin of getEmulatorCandidates()) {
+            const absolute = path.isAbsolute(emuBin);
+            if (absolute && !fsSync.existsSync(emuBin)) continue;
+            try {
+              const child = spawn(emuBin, [`@${chosen}`], {
+                detached: true,
+                stdio: "ignore",
+                windowsHide: true
+              });
+              child.unref();
+              launchedAvd = chosen;
+              break;
+            } catch {
+              /* try next candidate */
+            }
+          }
+        }
+      }
+    }
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  return {
+    ok: false,
+    serial: "",
+    state: lastState,
+    launchedAvd,
+    reason: launchedAvd ? `模拟器 ${launchedAvd} 启动超时` : "未检测到可用设备，且未能自动启动模拟器"
+  };
+}
+
+function probeHttp(port, pathName, timeoutMs = 2000) {
+  return new Promise((resolve) => {
+    const req = http.get(
+      {
+        hostname: "127.0.0.1",
+        port,
+        path: pathName,
+        timeout: timeoutMs,
+        agent: false
+      },
+      (r) => {
+        const statusCode = Number(r.statusCode || 0);
+        r.resume();
+        resolve({ ok: statusCode >= 200 && statusCode < 500, statusCode });
+      }
+    );
+    req.on("error", (err) => resolve({ ok: false, reason: err.message || String(err), statusCode: 0 }));
+    req.on("timeout", () => {
+      req.destroy();
+      resolve({ ok: false, reason: "探测超时", statusCode: 0 });
+    });
+    req.setTimeout(timeoutMs);
+  });
+}
+
+/**
+ * App 运行层探测：服务监听 + Expo 进程 + ADB + Expo Go（仅 Android）
+ * GET /api/probe-mobile?port=4774&projectPath=<abs path>&targetPlatform=app
+ */
+app.get("/api/probe-mobile", async (req, res) => {
+  const port = Number.parseInt(String(req.query.port || ""), 10);
+  const projectPath = String(req.query.projectPath || "").trim();
+  const targetPlatform = String(req.query.targetPlatform || "app")
+    .trim()
+    .toLowerCase();
+  if (!Number.isFinite(port) || port < 1 || port > 65535) {
+    res.status(400).json({ error: "port 参数无效" });
+    return;
+  }
+
+  const health = await probeHttp(port, "/api/health");
+  let service = {
+    ok: health.statusCode === 200,
+    statusCode: health.statusCode || 0,
+    reason: health.statusCode === 200 ? "在线（/api/health=200）" : health.reason || "未监听"
+  };
+  if (!service.ok && (targetPlatform === "app" || targetPlatform === "web_app")) {
+    const rootProbe = await probeHttp(port, "/");
+    if (rootProbe.ok) {
+      service = {
+        ok: true,
+        statusCode: rootProbe.statusCode || 0,
+        reason: "在线（APP 模式，检测 /）"
+      };
+    }
+  }
+
+  let trackedPid = null;
+  if (projectPath) {
+    const entry = subProjectSpawnByPath.get(path.resolve(projectPath));
+    if (entry && entry.child && entry.child.exitCode === null) {
+      trackedPid = Number(entry.child.pid || 0) || null;
+    }
+  }
+  const pids = await pidsListeningOnPort(port);
+  const listenerPid = pids.length > 0 ? pids[0] : null;
+  const expo = {
+    ok: Boolean(trackedPid || listenerPid),
+    pid: trackedPid || listenerPid || null,
+    source: trackedPid ? "tracked" : listenerPid ? "port_listener" : "none"
+  };
+
+  let adb = {
+    ok: false,
+    state: "unknown",
+    serial: "",
+    reason: "未检测"
+  };
+  let expoGo = {
+    installed: false,
+    running: false,
+    reason: "未检测"
+  };
+
+  const adbList = await runWithCandidates(getAdbCandidates(), ["devices"]);
+  if (!adbList.ok) {
+    adb.reason = adbList.error || adbList.stderr || "adb 调用失败";
+  } else {
+    const devices = parseAdbDevices(adbList.stdout);
+    const emulatorDevice = devices.find((d) => d.serial.startsWith("emulator-")) || devices[0];
+    if (!emulatorDevice) {
+      adb.state = "no_device";
+      adb.reason = "未发现 Android 设备/模拟器";
+    } else {
+      adb.serial = emulatorDevice.serial;
+      adb.state = emulatorDevice.state;
+      adb.ok = emulatorDevice.state === "device";
+      adb.reason =
+        emulatorDevice.state === "device"
+          ? "设备已连接"
+          : emulatorDevice.state === "unauthorized"
+            ? "设备未授权（请在模拟器确认 ADB 授权）"
+            : emulatorDevice.state;
+      if (emulatorDevice.state === "device") {
+        const pkgCheck = await runWithCandidates(
+          getAdbCandidates(),
+          ["-s", emulatorDevice.serial, "shell", "pm", "list", "packages", "host.exp.exponent"],
+          5000
+        );
+        if (pkgCheck.ok && /host\.exp\.exponent/.test(pkgCheck.stdout)) {
+          expoGo.installed = true;
+          expoGo.reason = "已安装";
+          const pidCheck = await runWithCandidates(
+            getAdbCandidates(),
+            ["-s", emulatorDevice.serial, "shell", "pidof", "host.exp.exponent"],
+            3000
+          );
+          expoGo.running = pidCheck.ok && Boolean(String(pidCheck.stdout || "").trim());
+          if (expoGo.running) expoGo.reason = "运行中";
+        } else {
+          expoGo.reason = "未安装 Expo Go";
+        }
+      }
+    }
+  }
+
+  let nextAction = "";
+  let severity = "ok";
+  if (!service.ok) {
+    severity = "off";
+    nextAction = "先点击“启动子项目”，确认端口在线后再查看移动端状态";
+  } else if (!expo.ok) {
+    severity = "off";
+    nextAction = "未检测到 Expo 进程，请重新启动子项目";
+  } else if (adb.state === "no_device") {
+    severity = "warn";
+    nextAction = "请先启动 Android 模拟器（或连接真机）";
+  } else if (adb.state === "unauthorized") {
+    severity = "warn";
+    nextAction = "请在模拟器确认 ADB 授权（或重启 adb）";
+  } else if (adb.state === "device" && !expoGo.installed) {
+    severity = "warn";
+    nextAction = "请先在模拟器安装 Expo Go";
+  } else if (adb.state === "device" && expoGo.installed && !expoGo.running) {
+    severity = "warn";
+    nextAction = "已连接设备，执行 `npx expo start --android --port <端口>` 打开 App";
+  }
+
+  res.json({
+    ok: severity === "ok",
+    severity,
+    port,
+    service,
+    expo,
+    adb,
+    expoGo,
+    nextAction
+  });
 });
 
 /**
@@ -611,7 +1035,11 @@ app.post("/api/start-subproject", async (req, res) => {
   try {
     const body = req.body || {};
     const rawPath = String(body.projectPath || "").trim();
+    const targetPlatform = normalizeTargetPlatform(body.targetPlatform || "web");
+    const autoLaunchAndroid = body.autoLaunchAndroid !== false;
     const portNum = Number.parseInt(String(body.port ?? ""), 10);
+    /** @type {string[]} */
+    const setupNotes = [];
     if (!Number.isFinite(portNum) || portNum < 1 || portNum > 65535) {
       res.status(400).json({ error: "port 无效" });
       return;
@@ -630,11 +1058,24 @@ app.post("/api/start-subproject", async (req, res) => {
 
     const healthy = await probeLocalHealth(portNum);
     if (healthy) {
+      if (autoLaunchAndroid && (targetPlatform === "app" || targetPlatform === "web_app")) {
+        const device = await waitForAndroidDeviceReady(50000);
+        setupNotes.push(device.reason);
+        if (device.ok && device.serial) {
+          const openRes = await openExpoDeepLinkOnAndroid(device.serial, portNum);
+          if (openRes.ok) {
+            setupNotes.push(`已尝试在模拟器打开 ${openRes.usedUrl}`);
+          } else {
+            setupNotes.push("已启动模拟器，但自动打开 Expo Go 失败，请手动打开 Expo Go");
+          }
+        }
+      }
       console.log(`[AutoFlow] 端口 ${portNum} 已在监听 /api/health，跳过启动`);
       res.json({
         ok: true,
         skipped: true,
         port: portNum,
+        setupNotes,
         message: "该端口已可访问 /api/health，无需重复启动"
       });
       return;
@@ -672,20 +1113,79 @@ app.post("/api/start-subproject", async (req, res) => {
         /* ignore */
       }
     };
+    let startCommand = "npm run start";
+    let startArgs = ["run", "start"];
+    let startBin = process.platform === "win32" ? "npm.cmd" : "npm";
+    /** @type {Record<string,string>} */
+    const extraEnv = {};
+    try {
+      const packageJsonPath = path.join(absPath, "package.json");
+      const rawPkg = await fs.readFile(packageJsonPath, "utf-8");
+      const parsedPkg = JSON.parse(rawPkg);
+      const startScript = String(parsedPkg?.scripts?.start || "").trim();
+      const hasNodeWebServer = fsSync.existsSync(path.join(absPath, "src", "server.js"));
+
+      if (targetPlatform === "web" && hasNodeWebServer) {
+        // Web 调试优先走 node src/server.js，避免 expo web 场景下静态路由与 ESM 入口不一致。
+        startCommand = "node src/server.js (web-preferred)";
+        startArgs = [path.join("src", "server.js")];
+        startBin = process.execPath;
+      } else
+      if (startScript === "expo start" || startScript === "npx expo start") {
+        const hasExpoDep =
+          Boolean(parsedPkg?.dependencies?.expo) ||
+          Boolean(parsedPkg?.devDependencies?.expo);
+        const hasExpoEntry =
+          fsSync.existsSync(path.join(absPath, "App.js")) ||
+          fsSync.existsSync(path.join(absPath, "App.jsx")) ||
+          fsSync.existsSync(path.join(absPath, "App.tsx")) ||
+          fsSync.existsSync(path.join(absPath, "app"));
+
+        if (hasExpoDep && hasExpoEntry) {
+          const shouldOpenAndroid =
+            autoLaunchAndroid && (targetPlatform === "app" || targetPlatform === "web_app");
+          if (shouldOpenAndroid) {
+            const device = await waitForAndroidDeviceReady(50000);
+            setupNotes.push(device.reason);
+            startCommand = "CI=1 EXPO_NO_DOCTOR=1 npx expo start --android --port <PORT>";
+            startArgs = ["expo", "start", "--android", "--port", String(portNum)];
+          } else {
+            startCommand = "CI=1 EXPO_NO_DOCTOR=1 npx expo start --port <PORT>";
+            startArgs = ["expo", "start", "--port", String(portNum)];
+          }
+          extraEnv.CI = "1";
+          extraEnv.EXPO_NO_DOCTOR = "1";
+          startBin = process.platform === "win32" ? "npx.cmd" : "npx";
+        } else if (hasNodeWebServer) {
+          // 一些项目在步骤生成中会保留 Web 骨架，但 start 脚本被写成 expo。
+          // 对这类“伪 Expo 项目”回退到 Node 服务，避免启动即崩溃导致地址不可访问。
+          startCommand = "node src/server.js (fallback)";
+          startArgs = [path.join("src", "server.js")];
+          startBin = process.execPath;
+        }
+      }
+    } catch {
+      /* ignore package.json parse error, fallback npm run start */
+    }
     fsSync.writeSync(
       logFd,
       Buffer.from(
-        `\n--- ${new Date().toISOString()} npm run start (PORT=${portNum}) via AutoFlow ---\n`,
+        `\n--- ${new Date().toISOString()} ${startCommand} (PORT=${portNum}) via AutoFlow ---\n`,
         "utf8"
       )
     );
+    if (setupNotes.length) {
+      fsSync.writeSync(
+        logFd,
+        Buffer.from(`${setupNotes.map((s) => `[setup] ${s}`).join("\n")}\n`, "utf8")
+      );
+    }
 
-    const npmCmd = process.platform === "win32" ? "npm.cmd" : "npm";
     let child;
     try {
-      child = spawn(npmCmd, ["run", "start"], {
+      child = spawn(startBin, startArgs, {
         cwd: absPath,
-        env: { ...process.env, PORT: String(portNum) },
+        env: { ...process.env, ...extraEnv, PORT: String(portNum) },
         stdio: ["ignore", logFd, logFd]
       });
     } catch (spawnErr) {
@@ -738,6 +1238,7 @@ app.post("/api/start-subproject", async (req, res) => {
       ok: true,
       pid: child.pid,
       port: portNum,
+      setupNotes,
       logRelative: ".autoflow/subproject-server.log",
       message: `已启动子项目（PID ${child.pid}），日志写入 .autoflow/subproject-server.log`
     });
@@ -953,6 +1454,9 @@ app.post("/api/runs", async (req, res) => {
     ? Math.min(60000, Math.max(0, cdpLingerMsRaw))
     : 3000;
   const cdpDriver = normalizeCdpDriver(req.body?.cdpDriver);
+  const targetPlatform = normalizeTargetPlatform(req.body?.targetPlatform);
+  const appStack = normalizeAppStack(req.body?.appStack);
+  const appTestMode = normalizeAppTestMode(req.body?.appTestMode);
 
   const id = crypto.randomUUID();
   const projectsRoot = path.join(baseDir, "projects");
@@ -995,7 +1499,10 @@ app.post("/api/runs", async (req, res) => {
     useExistingWorkspace,
     cdpHeaded,
     cdpLingerMs,
-    cdpDriver
+    cdpDriver,
+    targetPlatform,
+    appStack,
+    appTestMode
   });
   run.events = [];
   run.lastEventId = 0;

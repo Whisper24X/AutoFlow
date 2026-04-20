@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ops Admin Lab - Users</title>
+    <link rel="stylesheet" href="/assets/app.css" />
+  </head>
+  <body data-page="users">
+    <div class="layout">
+      <aside class="sidebar">
+        <div class="sidebar-brand">
+          <span class="sidebar-badge">Playwright Ready</span>
+          <h1>Ops Admin Lab</h1>
+        </div>
+        <nav class="sidebar-nav">
+          <span class="sidebar-section-label">Workspace</span>
+          <a class="nav-link" data-nav="dashboard" href="/">仪表盘</a>
+          <a class="nav-link" data-nav="users" href="/users.html">用户中心</a>
+          <a class="nav-link" data-nav="orders" href="/orders.html">订单中心</a>
+          <a class="nav-link" data-nav="reviews" href="/reviews.html">审核工作台</a>
+        </nav>
+        <div class="sidebar-footer">
+          <span class="sidebar-footer-label">Environment</span>
+          <strong>Local Mock Workspace</strong>
+        </div>
+      </aside>
+      <main class="content">
+        <div class="content-shell">
+        <div class="page-header">
+          <div>
+            <span class="page-eyebrow">User Management</span>
+            <h2>用户中心</h2>
+            <p>支持搜索、筛选与跳转用户详情页。</p>
+          </div>
+          <div class="page-actions">
+            <div class="page-badges">
+              <span class="soft-badge">Search</span>
+              <span class="soft-badge">Filters</span>
+              <span class="soft-badge">Deep links</span>
+            </div>
+          </div>
+        </div>
+        <div class="flash" data-testid="global-error"></div>
+        <section class="panel">
+          <h3>用户列表</h3>
+          <p class="panel-subtitle">支持按姓名、ID、城市和状态筛选，并可进入用户详情查看最近订单。</p>
+          <div class="toolbar">
+            <input data-testid="user-search" placeholder="搜索姓名、ID、城市" value="刘" />
+            <select data-testid="user-status-filter">
+              <option value="all">全部状态</option>
+              <option value="active">active</option>
+              <option value="pending">pending</option>
+              <option value="suspended">suspended</option>
+            </select>
+            <button data-testid="apply-user-filters">应用筛选</button>
+          </div>
+          <div class="table-shell">
+            <table>
+              <thead>
+                <tr>
+                  <th>姓名</th>
+                  <th>用户 ID</th>
+                  <th>状态</th>
+                  <th>分层</th>
+                  <th>城市</th>
+                  <th>订单数</th>
+                  <th>观察状态</th>
+                </tr>
+              </thead>
+              <tbody data-testid="users-table-body"></tbody>
+            </table>
+          </div>
+        </section>
+        </div>
+      </main>
+    </div>
+    <script src="/assets/app.js"></script>
+  </body>
+  </html>

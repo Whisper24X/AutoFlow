@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ops Admin Lab - Order Detail</title>
+    <link rel="stylesheet" href="/assets/app.css" />
+  </head>
+  <body data-page="order-detail">
+    <div class="layout">
+      <aside class="sidebar">
+        <div class="sidebar-brand">
+          <span class="sidebar-badge">Playwright Ready</span>
+          <h1>Ops Admin Lab</h1>
+        </div>
+        <nav class="sidebar-nav">
+          <span class="sidebar-section-label">Workspace</span>
+          <a class="nav-link" data-nav="dashboard" href="/">仪表盘</a>
+          <a class="nav-link" data-nav="users" href="/users.html">用户中心</a>
+          <a class="nav-link" data-nav="orders" href="/orders.html">订单中心</a>
+          <a class="nav-link" data-nav="reviews" href="/reviews.html">审核工作台</a>
+        </nav>
+        <div class="sidebar-footer">
+          <span class="sidebar-footer-label">Environment</span>
+          <strong>Local Mock Workspace</strong>
+        </div>
+      </aside>
+      <main class="content">
+        <div class="content-shell">
+        <div class="page-header">
+          <div>
+            <span class="page-eyebrow">Order Detail</span>
+            <h2>订单详情 <span data-testid="order-detail-id"></span></h2>
+            <p>支持异常标记、重新提审与跳转用户详情。</p>
+          </div>
+          <div class="page-actions">
+            <div class="page-badges">
+              <span class="soft-badge">Order review</span>
+              <span class="soft-badge">Cross-page jump</span>
+            </div>
+            <a class="button-link button-secondary" href="/orders.html">返回订单列表</a>
+          </div>
+        </div>
+        <div class="flash" data-testid="global-error"></div>
+        <section class="grid two-column">
+          <article class="panel">
+            <h3>订单状态</h3>
+            <p class="panel-subtitle">围绕异常标记、审核状态和关联用户形成完整操作闭环。</p>
+            <div class="meta-list" data-testid="order-meta"></div>
+            <div class="detail-actions">
+              <div class="detail-metric">订单状态：<span data-testid="order-detail-status"></span></div>
+              <div class="detail-metric">审核状态：<span data-testid="order-review-state"></span></div>
+              <div class="detail-metric">异常状态：<strong data-testid="order-flag-state"></strong></div>
+            </div>
+            <div class="detail-actions">
+              <a href="/user-detail.html?id=u-1001" class="button-link button-secondary" data-testid="order-user-link">查看用户</a>
+              <button class="button-secondary" data-testid="toggle-order-flag">标记异常</button>
+              <button data-testid="submit-order-review">提交审核</button>
+            </div>
+            <div class="flash" data-testid="order-flash"></div>
+          </article>
+          <article class="panel">
+            <h3>订单项目</h3>
+            <p class="panel-subtitle">展示本单包含的服务项，方便验证详情内容加载是否正确。</p>
+            <ul data-testid="order-items"></ul>
+          </article>
+        </section>
+        </div>
+      </main>
+    </div>
+    <script src="/assets/app.js"></script>
+  </body>
+  </html>
