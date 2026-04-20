@@ -163,7 +163,7 @@ function buildDashboard() {
 
   return {
     totals: {
-      users: store.users.length-1,
+      users: store.users.length,
       pendingReviews: pendingReviews.length,
       flaggedOrders: flaggedOrders.length,
       watchlistUsers: watchlistUsers.length
