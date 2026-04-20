@@ -13,7 +13,7 @@ const trDir    = __dirname;                                      // test-runner/
 const appDir   = path.resolve(trDir, "..");                      // ops-admin-lab/
 const repoRoot = path.resolve(trDir, "../../../..");             // AutoFlow/
 
-const CURSOR_MODEL = "composer-2-fast";
+const CURSOR_MODEL = "composer-2";
 
 app.use(express.json());
 
@@ -50,7 +50,7 @@ function buildFixLoopPrompt(testCmd) {
 app.post("/api/tr/run", (req, res) => {
   const { testArgs } = req.body;
   const safeArgs = typeof testArgs === "string" ? testArgs.trim() : "";
-  const testCmd  = `cd archive/apps/ops-admin-lab && npx playwright test${safeArgs ? " " + safeArgs : ""}`;
+  const testCmd  = `cd archive/apps/ops-admin-lab && PLAYWRIGHT_HEADED=1 PLAYWRIGHT_SLOW_MO=800 npx playwright test${safeArgs ? " " + safeArgs : ""}`;
   const prompt   = buildFixLoopPrompt(testCmd);
 
   res.setHeader("Content-Type", "text/event-stream");

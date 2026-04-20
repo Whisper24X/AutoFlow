@@ -1,4 +1,4 @@
-const { test, expect } = require("@playwright/test");
+const { test, expect } = require("./fixtures");
 
 test.beforeEach(async ({ request }) => {
   await request.post("/api/test/reset");

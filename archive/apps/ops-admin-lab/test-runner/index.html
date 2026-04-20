@@ -194,7 +194,7 @@
     .action-bar {
       padding: 12px 16px;
       border-top: 1px solid var(--border);
-      display: flex; gap: 8px; flex-wrap: wrap;
+      display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
     }
 
     /* log panel */
@@ -615,6 +615,7 @@ function autoScroll() {
 }
 
 function startRun(testArgs) {
+  const endpoint = "/api/tr/run";
   if (running) return;
   running = true;
   userScrolledUp = false;
@@ -686,7 +687,7 @@ function startRun(testArgs) {
     if (eventType === "done") onDone();
   }
 
-  fetch("/api/tr/run", {
+  fetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ testArgs }),
@@ -773,6 +774,7 @@ document.getElementById("btn-run-all").addEventListener("click", () => {
 document.getElementById("btn-run-selected").addEventListener("click", () => {
   startRun(buildTestArgs());
 });
+
 
 document.getElementById("btn-select-all").addEventListener("click", () => {
   specTree.forEach(({ file, groups }) =>
