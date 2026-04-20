@@ -1,0 +1,826 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Test Runner · ops-admin-lab</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #070b14;
+      --surface: rgba(18, 24, 38, 0.82);
+      --elevated: rgba(24, 32, 49, 0.92);
+      --border: rgba(137, 170, 222, 0.18);
+      --border-strong: rgba(126, 175, 255, 0.38);
+      --text: #f1f6ff;
+      --muted: #8a99b8;
+      --accent: #f3b46a;
+      --flow: #5ea7ff;
+      --ok: #46d9a2;
+      --err: #fb7f89;
+      --warn: #f8b24a;
+      --panel-shadow: 0 16px 40px rgba(5,10,22,0.38);
+      --panel-glow: inset 0 1px 0 rgba(255,255,255,0.03);
+      --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
+      --font-mono: 'IBM Plex Mono', 'Fira Code', monospace;
+      --font-display: 'DM Serif Display', Georgia, serif;
+      --radius: 14px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background:
+        radial-gradient(1000px 500px at 5% -5%, rgba(94,167,255,0.15) 0%, transparent 70%),
+        radial-gradient(800px 420px at 98% 0%, rgba(147,111,255,0.13) 0%, transparent 66%),
+        linear-gradient(170deg, #070b14 0%, #0a1020 48%, #080c18 100%);
+      min-height: 100vh;
+      color: var(--text);
+      font-family: var(--font-sans);
+      font-size: 14px;
+      line-height: 1.56;
+      -webkit-font-smoothing: antialiased;
+    }
+    .shell { max-width: 1520px; margin: 0 auto; padding: 24px 20px 60px; }
+
+    /* header */
+    header {
+      padding: 18px 22px 16px;
+      border-radius: var(--radius);
+      border: 1px solid rgba(145,184,255,0.14);
+      background: linear-gradient(140deg, rgba(15,22,36,0.78), rgba(10,15,29,0.52));
+      backdrop-filter: blur(10px);
+      box-shadow: var(--panel-glow);
+      margin-bottom: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .header-left h1 {
+      font-family: var(--font-display);
+      font-weight: 400;
+      font-size: clamp(1.3rem, 2.4vw, 1.72rem);
+      letter-spacing: -0.016em;
+      line-height: 1.2;
+    }
+    .header-left p { color: var(--muted); font-size: 13px; margin-top: 3px; }
+    .header-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+    /* buttons */
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 8px 16px; border-radius: 9px; border: 1px solid var(--border);
+      font-family: var(--font-sans); font-size: 13px; font-weight: 500;
+      cursor: pointer; transition: all 0.15s; white-space: nowrap;
+      background: rgba(255,255,255,0.04); color: var(--text);
+    }
+    .btn:hover { background: rgba(255,255,255,0.08); border-color: var(--border-strong); }
+    .btn:disabled { opacity: 0.38; cursor: not-allowed; }
+    .btn-primary {
+      background: linear-gradient(135deg, rgba(94,167,255,0.22), rgba(94,167,255,0.12));
+      border-color: rgba(94,167,255,0.45);
+      color: #a8ceff;
+    }
+    .btn-primary:hover:not(:disabled) {
+      background: linear-gradient(135deg, rgba(94,167,255,0.32), rgba(94,167,255,0.18));
+    }
+    .btn-accent {
+      background: linear-gradient(135deg, rgba(243,180,106,0.22), rgba(243,180,106,0.11));
+      border-color: rgba(243,180,106,0.45);
+      color: #f3c27a;
+    }
+    .btn-accent:hover:not(:disabled) {
+      background: linear-gradient(135deg, rgba(243,180,106,0.32), rgba(243,180,106,0.18));
+    }
+    .btn-ghost { background: transparent; border-color: transparent; color: var(--muted); font-size: 12px; padding: 6px 10px; }
+    .btn-ghost:hover { color: var(--text); background: rgba(255,255,255,0.05); }
+    .btn-report {
+      background: linear-gradient(135deg, rgba(70,217,162,0.2), rgba(70,217,162,0.1));
+      border-color: rgba(70,217,162,0.4);
+      color: #5fe8b2;
+      text-decoration: none;
+    }
+    .btn-report:hover { background: linear-gradient(135deg, rgba(70,217,162,0.3), rgba(70,217,162,0.15)); }
+
+    /* layout */
+    .layout {
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      gap: 14px;
+      align-items: start;
+    }
+    @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+
+    /* panel */
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--panel-shadow), var(--panel-glow);
+      overflow: hidden;
+    }
+    .panel-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 16px 11px;
+      border-bottom: 1px solid var(--border);
+      gap: 8px;
+    }
+    .panel-title { font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: 0.06em; text-transform: uppercase; }
+    .panel-body { padding: 10px 0; }
+
+    /* spec tree */
+    .spec-file {
+      margin-bottom: 2px;
+    }
+    .spec-file-label {
+      display: flex; align-items: center; gap: 8px;
+      padding: 7px 16px 7px 12px;
+      cursor: pointer;
+      user-select: none;
+      border-radius: 0;
+      transition: background 0.1s;
+    }
+    .spec-file-label:hover { background: rgba(255,255,255,0.04); }
+    .spec-file-label .arrow {
+      width: 14px; flex-shrink: 0;
+      font-size: 10px; color: var(--muted);
+      transition: transform 0.15s;
+      display: inline-block;
+    }
+    .spec-file-label.collapsed .arrow { transform: rotate(-90deg); }
+    .spec-file-name {
+      font-family: var(--font-mono); font-size: 12px;
+      color: var(--flow); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .spec-file-count { font-size: 11px; color: var(--muted); flex-shrink: 0; }
+    .spec-file-body { display: block; }
+    .spec-file-body.hidden { display: none; }
+
+    .describe-group { margin-bottom: 1px; }
+    .describe-label {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 16px 6px 28px;
+      cursor: pointer; user-select: none;
+      transition: background 0.1s;
+    }
+    .describe-label:hover { background: rgba(255,255,255,0.03); }
+    .describe-label .arrow { width: 12px; flex-shrink: 0; font-size: 9px; color: var(--muted); transition: transform 0.15s; display: inline-block; }
+    .describe-label.collapsed .arrow { transform: rotate(-90deg); }
+    .describe-name { flex: 1; font-size: 13px; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .describe-count { font-size: 11px; color: var(--muted); flex-shrink: 0; }
+    .describe-body { display: block; }
+    .describe-body.hidden { display: none; }
+
+    .test-item {
+      display: flex; align-items: center; gap: 8px;
+      padding: 5px 16px 5px 44px;
+      cursor: pointer; user-select: none;
+      transition: background 0.1s;
+    }
+    .test-item:hover { background: rgba(255,255,255,0.025); }
+    .test-name { flex: 1; font-size: 12.5px; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .test-item.checked .test-name { color: var(--text); }
+
+    /* checkbox */
+    input[type="checkbox"] {
+      width: 14px; height: 14px; flex-shrink: 0;
+      accent-color: var(--flow);
+      cursor: pointer;
+    }
+
+    /* action bar */
+    .action-bar {
+      padding: 12px 16px;
+      border-top: 1px solid var(--border);
+      display: flex; gap: 8px; flex-wrap: wrap;
+    }
+
+    /* log panel */
+    .log-panel { display: flex; flex-direction: column; position: relative; }
+    .log-panel .panel-header { flex-shrink: 0; }
+    .log-wrap {
+      flex: 1; overflow-y: auto;
+      min-height: 480px; max-height: 72vh;
+      background: #0f1115;
+      position: relative;
+    }
+
+    /* idle placeholder */
+    .log-idle {
+      display: flex; align-items: center; justify-content: center;
+      height: 100%; min-height: 200px;
+      padding: 40px 16px; text-align: center;
+      color: #2d3a52; font-family: var(--font-mono); font-size: 12px;
+      pointer-events: none;
+    }
+
+    /* connecting state */
+    .log-connecting {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      height: 100%; min-height: 200px; gap: 14px;
+      color: #4a5a78; font-family: var(--font-mono); font-size: 12px;
+    }
+    .log-connecting .dots { display: flex; gap: 6px; }
+    .log-connecting .dot {
+      width: 7px; height: 7px; border-radius: 50%; background: var(--flow);
+      animation: dotpulse 1.4s ease-in-out infinite;
+    }
+    .log-connecting .dot:nth-child(2) { animation-delay: 0.2s; }
+    .log-connecting .dot:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes dotpulse {
+      0%, 80%, 100% { opacity: 0.2; transform: scale(0.75); }
+      40%           { opacity: 1;   transform: scale(1); }
+    }
+
+    /* actual log content */
+    .log-content {
+      margin: 0;
+      padding: 16px 20px 24px;
+      font-family: var(--font-mono);
+      font-size: 12.5px;
+      line-height: 1.74;
+      color: #c7d2fe;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    /* scroll-to-bottom float button */
+    .scroll-btn {
+      position: absolute; bottom: 14px; right: 14px;
+      width: 30px; height: 30px; border-radius: 50%;
+      background: rgba(15,17,21,0.88);
+      border: 1px solid rgba(199,210,254,0.22);
+      color: #c7d2fe; font-size: 15px;
+      cursor: pointer; z-index: 10;
+      display: flex; align-items: center; justify-content: center;
+      transition: all 0.15s; backdrop-filter: blur(6px);
+    }
+    .scroll-btn:hover { background: rgba(30,35,50,0.95); border-color: rgba(199,210,254,0.45); }
+
+    /* status bar */
+    .log-status {
+      padding: 10px 16px;
+      border-top: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      flex-shrink: 0; flex-wrap: wrap;
+    }
+    .status-text { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+    .spinner {
+      width: 13px; height: 13px;
+      border: 2px solid rgba(94,167,255,0.2);
+      border-top-color: var(--flow);
+      border-radius: 50%;
+      animation: spin 0.75s linear infinite;
+      display: inline-block; flex-shrink: 0;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* badge */
+    .badge {
+      display: inline-flex; align-items: center;
+      padding: 2px 7px; border-radius: 5px; font-size: 11px; font-weight: 500;
+    }
+    .badge-ok { background: rgba(70,217,162,0.15); color: #46d9a2; }
+    .badge-err { background: rgba(251,127,137,0.15); color: #fb7f89; }
+    .badge-run { background: rgba(94,167,255,0.15); color: #5ea7ff; }
+
+    /* selection summary */
+    .sel-summary { font-size: 11px; color: var(--muted); }
+    .sel-summary b { color: var(--flow); }
+
+    /* divider */
+    .spec-divider { height: 1px; background: var(--border); margin: 4px 0; }
+  </style>
+</head>
+<body>
+<div class="shell">
+
+  <header>
+    <div class="header-left">
+      <h1>Test Runner</h1>
+      <p>ops-admin-lab &nbsp;·&nbsp; playwright-fix-loop 闭环执行</p>
+    </div>
+    <div class="header-actions">
+      <button class="btn btn-ghost" id="btn-select-all">全选</button>
+      <button class="btn btn-ghost" id="btn-deselect-all">取消全选</button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <!-- 左：测试用例树 -->
+    <div class="panel" id="tree-panel">
+      <div class="panel-header">
+        <span class="panel-title">测试用例</span>
+        <span class="sel-summary" id="sel-summary">加载中…</span>
+      </div>
+      <div class="panel-body" id="tree-body">
+        <div class="log-empty">正在加载 spec 文件…</div>
+      </div>
+      <div class="action-bar">
+        <button class="btn btn-accent" id="btn-run-all" disabled>⚡ 一键测试全部并修复</button>
+        <button class="btn btn-primary" id="btn-run-selected" disabled>▶ 执行选中并修复</button>
+      </div>
+    </div>
+
+    <!-- 右：日志 -->
+    <div class="panel log-panel" id="log-panel">
+      <div class="panel-header">
+        <span class="panel-title">执行日志</span>
+        <span id="run-badge"></span>
+      </div>
+      <div class="log-wrap" id="log-wrap">
+        <!-- 空闲 -->
+        <div class="log-idle" id="log-idle">
+          点击执行按钮后，cursor agent 日志将实时显示于此
+        </div>
+        <!-- 连接中 -->
+        <div class="log-connecting" id="log-connecting" style="display:none">
+          <div class="dots">
+            <div class="dot"></div>
+            <div class="dot"></div>
+            <div class="dot"></div>
+          </div>
+          <span>正在连接 cursor agent，请稍候…</span>
+        </div>
+        <!-- 日志内容 -->
+        <pre class="log-content" id="log-content" style="display:none"></pre>
+      </div>
+      <!-- 滚动到底部按钮（悬浮在 log-wrap 上方） -->
+      <button class="scroll-btn" id="scroll-btn" style="display:none" title="滚动到底部">↓</button>
+      <div class="log-status" id="log-status" style="display:none">
+        <span class="status-text" id="status-text"></span>
+        <span id="report-link"></span>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ── 配置 ─────────────────────────────────────────────────────
+const SPEC_FILES = [
+  { file: "admin-flows.spec.js",    label: "管理后台流程" },
+  { file: "ui-regressions.spec.js", label: "UI 回归"      },
+  { file: "api-flows.spec.js",      label: "API 接口"     },
+];
+
+// ── 状态 ─────────────────────────────────────────────────────
+let specTree = [];   // [{ file, label, groups: [{ describe, tests: [str] }] }]
+let selected = {};   // selected[file][describe][testName] = true/false
+let running  = false;
+
+// ── 解析 spec 文件 ────────────────────────────────────────────
+function parseSpec(content) {
+  const groups = [];
+  let current  = null;
+  for (const line of content.split("\n")) {
+    const dm = line.match(/test\.describe\s*\(\s*["'`](.+?)["'`]/);
+    if (dm) {
+      current = { describe: dm[1], tests: [] };
+      groups.push(current);
+      continue;
+    }
+    const tm = line.match(/^\s+test\s*\(\s*["'`](.+?)["'`]/);
+    if (tm && current) {
+      current.tests.push(tm[1]);
+    }
+  }
+  return groups;
+}
+
+// ── 初始化选中状态 ─────────────────────────────────────────────
+function initSelected(tree) {
+  tree.forEach(({ file, groups }) => {
+    selected[file] = {};
+    groups.forEach(({ describe, tests }) => {
+      selected[file][describe] = {};
+      tests.forEach(t => { selected[file][describe][t] = true; });
+    });
+  });
+}
+
+// ── 统计 ──────────────────────────────────────────────────────
+function countAll() {
+  let total = 0, checked = 0;
+  specTree.forEach(({ file, groups }) =>
+    groups.forEach(({ describe, tests }) =>
+      tests.forEach(t => { total++; if (selected[file][describe][t]) checked++; })
+    )
+  );
+  return { total, checked };
+}
+
+function updateSummary() {
+  const { total, checked } = countAll();
+  document.getElementById("sel-summary").innerHTML =
+    `已选 <b>${checked}</b> / ${total}`;
+  document.getElementById("btn-run-selected").disabled = running || checked === 0;
+  document.getElementById("btn-run-all").disabled = running;
+}
+
+// ── 构建 testArgs ─────────────────────────────────────────────
+function buildTestArgs() {
+  const { total, checked } = countAll();
+  if (checked === total) return "";   // 全选 → 无参数
+
+  // 收集选中的 (file, tests)
+  const fileMap = {};   // file → [testName]
+  specTree.forEach(({ file, groups }) => {
+    groups.forEach(({ describe, tests }) => {
+      tests.forEach(t => {
+        if (selected[file][describe][t]) {
+          (fileMap[file] = fileMap[file] || []).push(t);
+        }
+      });
+    });
+  });
+
+  const files  = Object.keys(fileMap);
+  const allTests = files.flatMap(f => fileMap[f]);
+
+  // 单文件完整选中 → 只传文件路径
+  if (files.length === 1) {
+    const f = files[0];
+    const totalInFile = specTree.find(s => s.file === f).groups.flatMap(g => g.tests).length;
+    if (fileMap[f].length === totalInFile) return `tests/${f}`;
+  }
+
+  // 否则用 --grep
+  const pattern = allTests.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+  return `--grep "(${pattern})"`;
+}
+
+// ── 渲染树 ────────────────────────────────────────────────────
+function getFileState(file) {
+  let on = 0, total = 0;
+  specTree.find(s => s.file === file).groups.forEach(({ describe, tests }) =>
+    tests.forEach(t => { total++; if (selected[file][describe][t]) on++; })
+  );
+  if (on === 0) return "none";
+  if (on === total) return "all";
+  return "partial";
+}
+
+function getDescribeState(file, describe) {
+  const tests = specTree.find(s => s.file === file)
+    .groups.find(g => g.describe === describe).tests;
+  const on = tests.filter(t => selected[file][describe][t]).length;
+  if (on === 0) return "none";
+  if (on === tests.length) return "all";
+  return "partial";
+}
+
+function applyCheckboxState(cb, state) {
+  cb.checked       = state === "all";
+  cb.indeterminate = state === "partial";
+}
+
+function renderTree() {
+  const body = document.getElementById("tree-body");
+  body.innerHTML = "";
+
+  specTree.forEach(({ file, label, groups }) => {
+    const fileEl = document.createElement("div");
+    fileEl.className = "spec-file";
+
+    const totalTests = groups.reduce((n, g) => n + g.tests.length, 0);
+
+    const labelEl = document.createElement("div");
+    labelEl.className = "spec-file-label";
+    labelEl.innerHTML = `
+      <span class="arrow">▾</span>
+      <input type="checkbox" class="file-cb" data-file="${file}" />
+      <span class="spec-file-name">${label}</span>
+      <span class="spec-file-count">${totalTests}</span>`;
+    fileEl.appendChild(labelEl);
+
+    const fileCb = labelEl.querySelector(".file-cb");
+    applyCheckboxState(fileCb, getFileState(file));
+
+    // toggle collapse
+    labelEl.querySelector(".arrow").addEventListener("click", (e) => {
+      e.stopPropagation();
+      const body = fileEl.querySelector(".spec-file-body");
+      const arrow = labelEl.querySelector(".arrow");
+      const isHidden = body.classList.toggle("hidden");
+      labelEl.classList.toggle("collapsed", isHidden);
+    });
+
+    // file checkbox
+    fileCb.addEventListener("change", () => {
+      const on = fileCb.checked;
+      groups.forEach(({ describe, tests }) =>
+        tests.forEach(t => { selected[file][describe][t] = on; })
+      );
+      renderTree();
+      updateSummary();
+    });
+
+    const bodyEl = document.createElement("div");
+    bodyEl.className = "spec-file-body";
+
+    groups.forEach(({ describe, tests }) => {
+      const grp = document.createElement("div");
+      grp.className = "describe-group";
+
+      const descLabel = document.createElement("div");
+      descLabel.className = "describe-label";
+      descLabel.innerHTML = `
+        <span class="arrow">▾</span>
+        <input type="checkbox" class="desc-cb" data-file="${file}" data-desc="${describe}" />
+        <span class="describe-name">${describe}</span>
+        <span class="describe-count">${tests.length}</span>`;
+      grp.appendChild(descLabel);
+
+      const descCb = descLabel.querySelector(".desc-cb");
+      applyCheckboxState(descCb, getDescribeState(file, describe));
+
+      descLabel.querySelector(".arrow").addEventListener("click", (e) => {
+        e.stopPropagation();
+        const tbody = grp.querySelector(".describe-body");
+        const arrow = descLabel.querySelector(".arrow");
+        const isHidden = tbody.classList.toggle("hidden");
+        descLabel.classList.toggle("collapsed", isHidden);
+      });
+
+      descCb.addEventListener("change", () => {
+        const on = descCb.checked;
+        tests.forEach(t => { selected[file][describe][t] = on; });
+        renderTree();
+        updateSummary();
+      });
+
+      const descBody = document.createElement("div");
+      descBody.className = "describe-body";
+
+      tests.forEach(testName => {
+        const item = document.createElement("div");
+        item.className = "test-item" + (selected[file][describe][testName] ? " checked" : "");
+        item.innerHTML = `
+          <input type="checkbox" class="test-cb" data-file="${file}" data-desc="${describe}" data-test="${testName.replace(/"/g,'&quot;')}" ${selected[file][describe][testName] ? "checked" : ""} />
+          <span class="test-name" title="${testName.replace(/"/g,'&quot;')}">${testName}</span>`;
+        item.querySelector(".test-cb").addEventListener("change", (e) => {
+          selected[file][describe][testName] = e.target.checked;
+          renderTree();
+          updateSummary();
+        });
+        descBody.appendChild(item);
+      });
+
+      grp.appendChild(descBody);
+      bodyEl.appendChild(grp);
+    });
+
+    fileEl.appendChild(bodyEl);
+
+    if (specTree.indexOf(specTree.find(s => s.file === file)) < specTree.length - 1) {
+      const div = document.createElement("div");
+      div.className = "spec-divider";
+      fileEl.appendChild(div);
+    }
+
+    body.appendChild(fileEl);
+  });
+
+  updateSummary();
+}
+
+// ── 执行 ──────────────────────────────────────────────────────
+const SCROLL_THRESHOLD = 200;
+let userScrolledUp = false;
+
+function setupScrollTracking() {
+  const logWrap   = document.getElementById("log-wrap");
+  const scrollBtn = document.getElementById("scroll-btn");
+
+  logWrap.addEventListener("scroll", () => {
+    const dist = logWrap.scrollHeight - logWrap.scrollTop - logWrap.clientHeight;
+    userScrolledUp = dist > SCROLL_THRESHOLD;
+    scrollBtn.style.display = userScrolledUp ? "flex" : "none";
+  }, { passive: true });
+
+  scrollBtn.addEventListener("click", () => {
+    logWrap.scrollTo({ top: logWrap.scrollHeight, behavior: "smooth" });
+    userScrolledUp = false;
+    scrollBtn.style.display = "none";
+  });
+}
+
+function autoScroll() {
+  if (userScrolledUp) return;
+  const logWrap = document.getElementById("log-wrap");
+  logWrap.scrollTop = logWrap.scrollHeight;
+}
+
+function startRun(testArgs) {
+  if (running) return;
+  running = true;
+  userScrolledUp = false;
+
+  const logIdle       = document.getElementById("log-idle");
+  const logConnecting = document.getElementById("log-connecting");
+  const logContent    = document.getElementById("log-content");
+  const logWrap       = document.getElementById("log-wrap");
+  const logStatus     = document.getElementById("log-status");
+  const scrollBtn     = document.getElementById("scroll-btn");
+  const statusText    = document.getElementById("status-text");
+  const reportLink    = document.getElementById("report-link");
+  const badge         = document.getElementById("run-badge");
+
+  // 切到"连接中"状态
+  logIdle.style.display       = "none";
+  logConnecting.style.display = "flex";
+  logContent.style.display    = "none";
+  logContent.textContent      = "";
+  logStatus.style.display     = "flex";
+  scrollBtn.style.display     = "none";
+  reportLink.innerHTML        = "";
+  badge.innerHTML             = `<span class="badge badge-run">运行中</span>`;
+  statusText.innerHTML        = `<span class="spinner"></span> cursor agent 启动中…`;
+
+  updateSummary();
+  renderTree();
+
+  let firstChunk = true;
+  let isDone = false;
+
+  function appendText(text) {
+    if (!text) return;
+    // 首次收到数据：隐藏 connecting，显示 log-content
+    if (firstChunk) {
+      firstChunk = false;
+      logConnecting.style.display = "none";
+      logContent.style.display    = "block";
+      statusText.innerHTML = `<span class="spinner"></span> cursor agent 执行中…`;
+    }
+    logContent.textContent += text;
+    autoScroll();
+  }
+
+  // ainative 风格的 SSE chunk 解析
+  function flushChunk(chunk) {
+    const lines = chunk.split("\n");
+    let eventType = undefined;
+    const dataLines = [];
+
+    for (const line of lines) {
+      if (line.startsWith("event:")) {
+        eventType = line.slice(6).trim();
+      } else if (line.startsWith("data:")) {
+        dataLines.push(line.slice(5).trimStart());
+      }
+    }
+
+    if (dataLines.length > 0) {
+      const raw = dataLines.join("\n");
+      try {
+        const payload = JSON.parse(raw);
+        if (payload.text !== undefined) appendText(payload.text);
+      } catch {
+        appendText(raw);
+      }
+    }
+
+    if (eventType === "done") onDone();
+  }
+
+  fetch("/api/tr/run", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ testArgs }),
+  }).then(async (resp) => {
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+    const reader  = resp.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let buf = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buf += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+
+      let boundary = buf.indexOf("\n\n");
+      while (boundary !== -1) {
+        const chunk = buf.slice(0, boundary).trim();
+        if (chunk) flushChunk(chunk);
+        buf = buf.slice(boundary + 2);
+        boundary = buf.indexOf("\n\n");
+      }
+    }
+
+    // flush 剩余
+    const remain = buf.trim();
+    if (remain) flushChunk(remain);
+
+    onDone();
+  }).catch(err => {
+    appendText(`\n[网络错误] ${err.message}`);
+    onDone(true);
+  });
+
+  function onDone(isErr) {
+    if (isDone) return;
+    isDone = true;
+    running = false;
+
+    // 如果从未收到任何数据，退出 connecting 状态
+    if (firstChunk) {
+      logConnecting.style.display = "none";
+      logContent.style.display    = "block";
+      logContent.textContent      = isErr ? "[错误] 未收到任何输出" : "[完成] 未产生输出";
+    }
+
+    const text = logContent.textContent;
+    const exitOk = !isErr
+      && !text.includes("exit 1")
+      && !text.includes("exit 2")
+      && !text.includes("exit 127")
+      && !text.includes("[错误]");
+
+    badge.innerHTML = exitOk
+      ? `<span class="badge badge-ok">完成</span>`
+      : `<span class="badge badge-err">失败 / 中断</span>`;
+    statusText.innerHTML = exitOk
+      ? `<span style="color:var(--ok)">✓</span> 执行完成`
+      : `<span style="color:var(--err)">✕</span> 执行结束（有失败或错误）`;
+    reportLink.innerHTML =
+      `<a class="btn btn-report" href="/playwright-report/" target="_blank">📊 查看 HTML 报告</a>`;
+
+    updateSummary();
+    renderTree();
+    autoScroll();
+  }
+}
+
+setupScrollTracking();
+
+// ── 按钮事件 ──────────────────────────────────────────────────
+document.getElementById("btn-run-all").addEventListener("click", () => {
+  // 强制全选
+  specTree.forEach(({ file, groups }) =>
+    groups.forEach(({ describe, tests }) =>
+      tests.forEach(t => { selected[file][describe][t] = true; })
+    )
+  );
+  renderTree();
+  startRun("");
+});
+
+document.getElementById("btn-run-selected").addEventListener("click", () => {
+  startRun(buildTestArgs());
+});
+
+document.getElementById("btn-select-all").addEventListener("click", () => {
+  specTree.forEach(({ file, groups }) =>
+    groups.forEach(({ describe, tests }) =>
+      tests.forEach(t => { selected[file][describe][t] = true; })
+    )
+  );
+  renderTree();
+});
+
+document.getElementById("btn-deselect-all").addEventListener("click", () => {
+  specTree.forEach(({ file, groups }) =>
+    groups.forEach(({ describe, tests }) =>
+      tests.forEach(t => { selected[file][describe][t] = false; })
+    )
+  );
+  renderTree();
+});
+
+// ── 加载 spec 文件 ────────────────────────────────────────────
+async function loadSpecs() {
+  const results = await Promise.allSettled(
+    SPEC_FILES.map(({ file }) =>
+      fetch(`/api/tr/spec/${file}`).then(r => r.ok ? r.text() : Promise.reject(r.status))
+    )
+  );
+
+  specTree = [];
+  results.forEach((result, i) => {
+    if (result.status === "fulfilled") {
+      specTree.push({
+        file:   SPEC_FILES[i].file,
+        label:  SPEC_FILES[i].label,
+        groups: parseSpec(result.value),
+      });
+    }
+  });
+
+  initSelected(specTree);
+  renderTree();
+
+  document.getElementById("btn-run-all").disabled = false;
+}
+
+loadSpecs().catch(err => {
+  document.getElementById("tree-body").innerHTML =
+    `<div class="log-empty" style="color:var(--err)">加载失败：${err.message}</div>`;
+});
+</script>
+</body>
+</html>

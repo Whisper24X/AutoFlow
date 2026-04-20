@@ -4,8 +4,10 @@ const { defineConfig } = require("@playwright/test");
 const testPort = process.env.PLAYWRIGHT_PORT || "4175";
 const baseURL = `http://127.0.0.1:${testPort}`;
 const reuseOverride = process.env.PLAYWRIGHT_REUSE_SERVER;
+// 默认复用已就绪的 webServer，避免 4175 已被占用时启动第二实例失败。
+// 需在 CI 中强制全新进程时设置 PLAYWRIGHT_REUSE_SERVER=0（勿仅依赖 CI：部分 IDE/代理会误设 CI=1）。
 const reuseExistingServer =
-  reuseOverride === "1" ? true : reuseOverride === "0" ? false : !process.env.CI;
+  reuseOverride === "1" ? true : reuseOverride === "0" ? false : true;
 const headedOverride = process.env.PLAYWRIGHT_HEADED === "1";
 const slowMo = Number(process.env.PLAYWRIGHT_SLOW_MO || "0");
 
