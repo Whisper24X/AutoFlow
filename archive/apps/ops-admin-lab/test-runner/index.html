@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Test Runner · ops-admin-lab</title>
+  <title>AutoFlow · ops-admin-lab</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
@@ -27,6 +27,61 @@
       --font-mono: 'IBM Plex Mono', 'Fira Code', monospace;
       --font-display: 'DM Serif Display', Georgia, serif;
       --radius: 14px;
+      /* log panel */
+      --log-bg: #0f1115;
+      --log-text: #c7d2fe;
+      --log-idle: #2d3a52;
+      --log-connecting: #4a5a78;
+      --scroll-btn-bg: rgba(15,17,21,0.88);
+      --scroll-btn-border: rgba(199,210,254,0.22);
+      --scroll-btn-color: #c7d2fe;
+      --header-bg: linear-gradient(140deg, rgba(15,22,36,0.78), rgba(10,15,29,0.52));
+    }
+    :root[data-theme="light"] {
+      --bg: #f0f4fb;
+      --surface: rgba(255,255,255,0.88);
+      --elevated: rgba(248,250,255,0.96);
+      --border: rgba(90,130,200,0.15);
+      --border-strong: rgba(60,110,220,0.3);
+      --text: #1a2540;
+      --muted: #5a6a8a;
+      --accent: #d4870a;
+      --flow: #2970d6;
+      --ok: #1aa870;
+      --err: #d93545;
+      --warn: #c87a00;
+      --panel-shadow: 0 8px 28px rgba(20,50,120,0.10);
+      --panel-glow: inset 0 1px 0 rgba(255,255,255,0.8);
+      --header-bg: linear-gradient(140deg, rgba(255,255,255,0.9), rgba(240,246,255,0.7));
+      /* log panel 始终保持深色，不随主题切换 */
+    }
+    /* 亮色模式：主操作按钮用实色填充，确保对比度 */
+    :root[data-theme="light"] .btn-accent {
+      background: linear-gradient(135deg, #e8870a, #d4700a);
+      border-color: #c46208;
+      color: #fff;
+      box-shadow: 0 2px 8px rgba(212,112,10,0.28);
+    }
+    :root[data-theme="light"] .btn-accent:hover:not(:disabled) {
+      background: linear-gradient(135deg, #f09020, #e07810);
+      box-shadow: 0 3px 12px rgba(212,112,10,0.38);
+    }
+    :root[data-theme="light"] .btn-primary {
+      background: linear-gradient(135deg, #2462c8, #1a50b0);
+      border-color: #1848a0;
+      color: #fff;
+      box-shadow: 0 2px 8px rgba(36,98,200,0.25);
+    }
+    :root[data-theme="light"] .btn-primary:hover:not(:disabled) {
+      background: linear-gradient(135deg, #2d70d8, #2060c0);
+      box-shadow: 0 3px 12px rgba(36,98,200,0.35);
+    }
+    :root[data-theme="light"] .btn-ghost {
+      color: var(--muted);
+    }
+    :root[data-theme="light"] .btn-ghost:hover {
+      background: rgba(0,0,0,0.05);
+      color: var(--text);
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -40,15 +95,22 @@
       font-size: 14px;
       line-height: 1.56;
       -webkit-font-smoothing: antialiased;
+      transition: background 0.3s, color 0.3s;
     }
-    .shell { max-width: 1520px; margin: 0 auto; padding: 24px 20px 60px; }
+    :root[data-theme="light"] body {
+      background:
+        radial-gradient(1000px 500px at 5% -5%, rgba(94,167,255,0.10) 0%, transparent 70%),
+        radial-gradient(800px 420px at 98% 0%, rgba(147,111,255,0.08) 0%, transparent 66%),
+        linear-gradient(170deg, #edf2fc 0%, #f0f5ff 48%, #e8eefa 100%);
+    }
+    .shell { max-width: 1520px; margin: 0 auto; padding: 24px 20px 100px; }
 
     /* header */
     header {
       padding: 18px 22px 16px;
       border-radius: var(--radius);
-      border: 1px solid rgba(145,184,255,0.14);
-      background: linear-gradient(140deg, rgba(15,22,36,0.78), rgba(10,15,29,0.52));
+      border: 1px solid var(--border);
+      background: var(--header-bg);
       backdrop-filter: blur(10px);
       box-shadow: var(--panel-glow);
       margin-bottom: 18px;
@@ -57,6 +119,7 @@
       justify-content: space-between;
       gap: 12px;
       flex-wrap: wrap;
+      transition: background 0.3s, border-color 0.3s;
     }
     .header-left h1 {
       font-family: var(--font-display);
@@ -120,6 +183,7 @@
       border-radius: var(--radius);
       box-shadow: var(--panel-shadow), var(--panel-glow);
       overflow: hidden;
+      transition: background 0.3s, border-color 0.3s, box-shadow 0.3s;
     }
     .panel-header {
       display: flex; align-items: center; justify-content: space-between;
@@ -192,9 +256,14 @@
 
     /* action bar */
     .action-bar {
-      padding: 12px 16px;
-      border-top: 1px solid var(--border);
-      display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+      position: fixed;
+      bottom: 28px;
+      left: 28px;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      z-index: 100;
+      filter: drop-shadow(0 4px 16px rgba(0,0,0,0.35));
     }
 
     /* log panel */
@@ -203,8 +272,9 @@
     .log-wrap {
       flex: 1; overflow-y: auto;
       min-height: 480px; max-height: 72vh;
-      background: #0f1115;
+      background: var(--log-bg);
       position: relative;
+      transition: background 0.3s;
     }
 
     /* idle placeholder */
@@ -212,7 +282,7 @@
       display: flex; align-items: center; justify-content: center;
       height: 100%; min-height: 200px;
       padding: 40px 16px; text-align: center;
-      color: #2d3a52; font-family: var(--font-mono); font-size: 12px;
+      color: var(--log-idle); font-family: var(--font-mono); font-size: 12px;
       pointer-events: none;
     }
 
@@ -220,7 +290,7 @@
     .log-connecting {
       display: flex; flex-direction: column; align-items: center; justify-content: center;
       height: 100%; min-height: 200px; gap: 14px;
-      color: #4a5a78; font-family: var(--font-mono); font-size: 12px;
+      color: var(--log-connecting); font-family: var(--font-mono); font-size: 12px;
     }
     .log-connecting .dots { display: flex; gap: 6px; }
     .log-connecting .dot {
@@ -245,14 +315,21 @@
       white-space: pre-wrap;
       word-break: break-all;
     }
+    /* 日志行着色 */
+    .log-line { display: block; }
+    .log-err  { color: #ff6b7a; }
+    .log-ok   { color: #46d9a2; }
+    .log-warn { color: #f8b24a; }
+    .log-dim  { color: #4a5a78; }
+    .log-head { color: #a78bfa; font-weight: 500; }
 
     /* scroll-to-bottom float button */
     .scroll-btn {
       position: absolute; bottom: 14px; right: 14px;
       width: 30px; height: 30px; border-radius: 50%;
-      background: rgba(15,17,21,0.88);
-      border: 1px solid rgba(199,210,254,0.22);
-      color: #c7d2fe; font-size: 15px;
+      background: var(--scroll-btn-bg);
+      border: 1px solid var(--scroll-btn-border);
+      color: var(--scroll-btn-color); font-size: 15px;
       cursor: pointer; z-index: 10;
       display: flex; align-items: center; justify-content: center;
       transition: all 0.15s; backdrop-filter: blur(6px);
@@ -299,12 +376,13 @@
 
   <header>
     <div class="header-left">
-      <h1>Test Runner</h1>
+      <h1>AutoFlow</h1>
       <p>ops-admin-lab &nbsp;·&nbsp; playwright-fix-loop 闭环执行</p>
     </div>
     <div class="header-actions">
       <button class="btn btn-ghost" id="btn-select-all">全选</button>
       <button class="btn btn-ghost" id="btn-deselect-all">取消全选</button>
+      <button class="btn btn-ghost" id="btn-theme" title="切换亮色/暗色模式" style="font-size:16px;padding:6px 10px;">🌙</button>
     </div>
   </header>
 
@@ -317,10 +395,6 @@
       </div>
       <div class="panel-body" id="tree-body">
         <div class="log-empty">正在加载 spec 文件…</div>
-      </div>
-      <div class="action-bar">
-        <button class="btn btn-accent" id="btn-run-all" disabled>⚡ 一键测试全部并修复</button>
-        <button class="btn btn-primary" id="btn-run-selected" disabled>▶ 执行选中并修复</button>
       </div>
     </div>
 
@@ -356,6 +430,12 @@
     </div>
   </div>
 
+</div>
+
+<!-- 浮动操作按钮 -->
+<div class="action-bar">
+  <button class="btn btn-accent" id="btn-run-all" disabled>⚡ 一键测试全部并修复</button>
+  <button class="btn btn-primary" id="btn-run-selected" disabled>▶ 执行选中并修复</button>
 </div>
 
 <script>
@@ -647,6 +727,27 @@ function startRun(testArgs) {
   let firstChunk = true;
   let isDone = false;
 
+  // 将文本行按内容归类为 CSS 类
+  function classifyLine(line) {
+    const t = line.trim();
+    if (!t) return "";
+    // 报错 / 失败
+    if (/✗|×|✕|FAILED|failed|Error:|error:|错误|exit [1-9]|[Ee]rror\b/.test(t)) return "log-err";
+    // 通过
+    if (/✓|✔|PASSED|passed|通过|completed|全绿|12 passed|[0-9]+ passed/.test(t)) return "log-ok";
+    // 警告
+    if (/warn|WARN|⚠|Warning/.test(t)) return "log-warn";
+    // 分隔线 / 标题
+    if (/^──|^##|^###|^={3,}|^-{3,}/.test(t)) return "log-head";
+    // 暗色（时间戳、元数据行）
+    if (/^\s*at |^\s*\d+\s*\|/.test(t)) return "log-dim";
+    return "";
+  }
+
+  function escapeHtml(s) {
+    return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  }
+
   function appendText(text) {
     if (!text) return;
     // 首次收到数据：隐藏 connecting，显示 log-content
@@ -656,7 +757,18 @@ function startRun(testArgs) {
       logContent.style.display    = "block";
       statusText.innerHTML = `<span class="spinner"></span> cursor agent 执行中…`;
     }
-    logContent.textContent += text;
+    // 按行着色，插入 HTML
+    const lines = text.split("\n");
+    const html = lines.map((line, i) => {
+      const cls = classifyLine(line);
+      const safe = escapeHtml(line);
+      // 最后一行不加换行（避免多余空行）
+      const suffix = i < lines.length - 1 ? "\n" : "";
+      return cls
+        ? `<span class="log-line ${cls}">${safe}</span>${suffix}`
+        : safe + suffix;
+    }).join("");
+    logContent.innerHTML += html;
     autoScroll();
   }
 
@@ -732,10 +844,12 @@ function startRun(testArgs) {
     if (firstChunk) {
       logConnecting.style.display = "none";
       logContent.style.display    = "block";
-      logContent.textContent      = isErr ? "[错误] 未收到任何输出" : "[完成] 未产生输出";
+      logContent.innerHTML        = isErr
+        ? `<span class="log-line log-err">[错误] 未收到任何输出</span>`
+        : `<span class="log-line log-dim">[完成] 未产生输出</span>`;
     }
 
-    const text = logContent.textContent;
+    const text = logContent.innerText;
     const exitOk = !isErr
       && !text.includes("exit 1")
       && !text.includes("exit 2")
@@ -756,6 +870,26 @@ function startRun(testArgs) {
     autoScroll();
   }
 }
+
+// ── 亮色/暗色模式 ─────────────────────────────────────────────
+(function () {
+  const root = document.documentElement;
+  const btn  = document.getElementById("btn-theme");
+  const saved = localStorage.getItem("tr-theme") || "dark";
+
+  function applyTheme(theme) {
+    root.setAttribute("data-theme", theme);
+    btn.textContent = theme === "light" ? "🌙" : "☀️";
+    btn.title = theme === "light" ? "切换到暗色模式" : "切换到亮色模式";
+    localStorage.setItem("tr-theme", theme);
+  }
+
+  applyTheme(saved);
+
+  btn.addEventListener("click", () => {
+    applyTheme(root.getAttribute("data-theme") === "light" ? "dark" : "light");
+  });
+})();
 
 setupScrollTracking();
 
