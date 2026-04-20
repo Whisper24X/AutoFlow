@@ -1,7 +1,8 @@
 // @ts-check
 const { defineConfig } = require("@playwright/test");
 
-const testPort = process.env.PLAYWRIGHT_PORT || "4175";
+// 测试服务独占 4177，与 dev(4175) 和 test-runner(4176) 完全隔离，互不干扰
+const testPort = process.env.PLAYWRIGHT_PORT || "4177";
 const baseURL = `http://127.0.0.1:${testPort}`;
 const reuseOverride = process.env.PLAYWRIGHT_REUSE_SERVER;
 // baseURL 已有健康响应时复用该进程，避免端口占用导致失败。必须独占启动时设置 PLAYWRIGHT_REUSE_SERVER=0。

@@ -6,12 +6,13 @@ set -e
 cd "$(dirname "$0")"
 
 echo "🔄 停止旧进程..."
-lsof -ti:4175 | xargs kill -9 2>/dev/null || true
-lsof -ti:4176 | xargs kill -9 2>/dev/null || true
+lsof -ti:4175 | xargs kill -9 2>/dev/null || true   # dev server
+lsof -ti:4176 | xargs kill -9 2>/dev/null || true   # test-runner
+lsof -ti:4177 | xargs kill -9 2>/dev/null || true   # playwright test server (独立端口)
 sleep 1
 
 echo "🚀 启动应用服务 (4175)..."
-node src/server.js &
+npm run dev &
 
 echo "🚀 启动 Test Runner (4176)..."
 node test-runner/server.js &
