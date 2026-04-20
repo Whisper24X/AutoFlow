@@ -1,7 +1,8 @@
 const express = require("express");
 const path = require("path");
-const { spawn } = require("child_process");
-const fs = require("fs/promises");
+
+const liveReloadEnabled = process.env.OPS_ADMIN_LAB_LIVERELOAD === "1";
+let browserReloadReady = false;
 
 function createStore() {
   const users = [
@@ -203,108 +204,48 @@ function serializeOrder(order) {
 
 const app = express();
 const port = Number(process.env.PORT || 4175);
-const appDir = path.resolve(__dirname, "..");
-const repoRoot = path.resolve(__dirname, "../../../..");
+
+if (liveReloadEnabled) {
+  const livereload = require("livereload");
+  const connectLivereload = require("connect-livereload");
+  const publicDir = path.join(__dirname, "../public");
+  const lrPort = Number(process.env.OPS_ADMIN_LAB_LIVERELOAD_PORT || 35729);
+
+  const lr = livereload.createServer(
+    {
+      extraExts: ["html", "css", "js", "svg", "json"],
+      port: lrPort
+    },
+    () => {
+      browserReloadReady = true;
+    }
+  );
+
+  lr.on("error", (err) => {
+    browserReloadReady = false;
+    if (err.code === "EADDRINUSE") {
+      console.warn(
+        `Live reload: port ${lrPort} is in use; continuing without browser auto-refresh. Set OPS_ADMIN_LAB_LIVERELOAD_PORT or free the port.`
+      );
+    } else {
+      console.warn("Live reload:", err.message);
+    }
+  });
+
+  lr.watch(publicDir);
+
+  const inject = connectLivereload({ port: lrPort });
+  app.use((req, res, next) => {
+    if (!browserReloadReady) {
+      next();
+      return;
+    }
+    inject(req, res, next);
+  });
+}
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "../public")));
-
-// ── Test Runner 路由 ──────────────────────────────────────────
-app.use("/test-runner", express.static(path.join(appDir, "test-runner")));
-app.use("/playwright-report", express.static(path.join(appDir, "playwright-report")));
-
-app.get("/api/tr/spec/:name", async (req, res) => {
-  const file = path.join(appDir, "tests", path.basename(req.params.name));
-  try {
-    res.type("text").send(await fs.readFile(file, "utf8"));
-  } catch {
-    res.status(404).end();
-  }
-});
-
-const CURSOR_MODEL = "composer-2-fast";
-
-function buildFixLoopPrompt(testCmd) {
-  return [
-    "你是 AI 软件工程流程的执行代理，当前阶段：playwright 测试自动修复闭环。",
-    "必须严格按以下 skills 方法执行：playwright-fix-loop。",
-    "要求：输出结构化、可执行、简洁；若涉及代码改动，优先最小改动，并给出变更证据。",
-    "",
-    `在 archive/apps/ops-admin-lab 目录执行以下命令，循环直到全部通过：`,
-    testCmd
-  ].join("\n");
-}
-
-app.post("/api/tr/run", (req, res) => {
-  const { testArgs } = req.body;
-  const safeArgs = typeof testArgs === "string" ? testArgs.trim() : "";
-  const testCmd = `cd archive/apps/ops-admin-lab && npx playwright test${safeArgs ? " " + safeArgs : ""}`;
-  const prompt  = buildFixLoopPrompt(testCmd);
-
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
-  res.setHeader("Connection", "keep-alive");
-  res.flushHeaders();
-
-  const send = (text) => {
-    if (!res.writableEnded) {
-      res.write(`data: ${JSON.stringify({ text })}\n\n`);
-    }
-  };
-
-  const child = spawn(
-    "cursor-agent",
-    [
-      "-p",
-      "--output-format", "stream-json",
-      "--model", CURSOR_MODEL,
-      "--trust",
-      "--force",
-      "--sandbox", "enabled",
-      "--workspace", repoRoot,
-      prompt
-    ],
-    { cwd: repoRoot, env: process.env }
-  );
-
-  // stream-json 格式：每行一个 JSON 对象，提取 assistant 消息的文本块
-  child.stdout.on("data", (chunk) => {
-    for (const line of chunk.toString().split("\n")) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      try {
-        const j = JSON.parse(trimmed);
-        if (j.type === "assistant" && Array.isArray(j.message?.content)) {
-          for (const block of j.message.content) {
-            if (block.type === "text" && block.text) send(block.text);
-          }
-        }
-      } catch { /* 非 JSON 行直接透传 */ send(trimmed); }
-    }
-  });
-  child.stderr.on("data", (chunk) => send(chunk.toString()));
-
-  child.on("close", (code) => {
-    send(`\n── 完成，exit ${code} ──`);
-    if (!res.writableEnded) {
-      res.write("event: done\ndata: {}\n\n");
-      res.end();
-    }
-  });
-
-  child.on("error", (err) => {
-    send(`\n[错误] 无法启动 cursor CLI：${err.message}`);
-    if (!res.writableEnded) {
-      res.write("event: done\ndata: {}\n\n");
-      res.end();
-    }
-  });
-
-  res.on("close", () => {
-    if (!child.killed) child.kill("SIGTERM");
-  });
-});
-// ── Test Runner 路由结束 ───────────────────────────────────────
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true, app: "ops-admin-lab" });
@@ -475,4 +416,10 @@ app.get("/", (_req, res) => {
 
 app.listen(port, () => {
   console.log(`Ops admin lab is running at http://127.0.0.1:${port}`);
+  if (liveReloadEnabled) {
+    console.log(
+      "Live reload: enabled (edit public/ for refresh; edit src/ restarts the server). " +
+        `Livereload port ${process.env.OPS_ADMIN_LAB_LIVERELOAD_PORT || 35729}.`
+    );
+  }
 });

@@ -4,11 +4,18 @@
   "description": "Multi-page admin app for stable Playwright testing loops",
   "scripts": {
     "start": "node src/server.js",
+    "dev": "OPS_ADMIN_LAB_LIVERELOAD=1 nodemon src/server.js",
     "test": "playwright test",
-    "test:headed": "playwright test --headed"
+    "test:headed": "playwright test --headed",
+    "test-runner": "node test-runner/server.js"
   },
   "dependencies": {
     "@playwright/test": "^1.59.1",
     "express": "^5.2.1"
+  },
+  "devDependencies": {
+    "connect-livereload": "^0.6.1",
+    "livereload": "^0.9.3",
+    "nodemon": "^3.1.9"
   }
 }
